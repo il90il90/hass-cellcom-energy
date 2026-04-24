@@ -109,19 +109,55 @@ class CellcomEnergyClient:
         """Return headers sent on every request."""
         return {
             "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
             "ClientID": CLIENT_ID,
             "Content-Type": "application/json",
             "DeviceId": self._device_id,
             "Origin": "https://cellcom.co.il",
             "Referer": "https://cellcom.co.il/",
             "SessionID": self._session_id,
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-site",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/147.0.0.0 Safari/537.36"
             ),
         }
+
+    async def async_prime_session(self) -> None:
+        """Make an initial GET to cellcom.co.il to acquire Imperva WAF cookies.
+
+        Without these cookies, subsequent API calls are blocked with HTTP 403.
+        The aiohttp session stores the cookies automatically for reuse.
+        """
+        try:
+            async with self._session.get(
+                "https://cellcom.co.il/",
+                headers={
+                    "Accept": (
+                        "text/html,application/xhtml+xml,application/xml;"
+                        "q=0.9,image/avif,image/webp,*/*;q=0.8"
+                    ),
+                    "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/147.0.0.0 Safari/537.36"
+                    ),
+                },
+                timeout=aiohttp.ClientTimeout(total=15),
+                allow_redirects=True,
+            ) as resp:
+                _LOGGER.debug(
+                    "Session primed: GET cellcom.co.il → %s, cookies: %s",
+                    resp.status,
+                    list(self._session.cookie_jar.__iter__()),
+                )
+        except Exception as err:
+            # Non-fatal: continue even if the prime request fails.
+            _LOGGER.warning("Session prime request failed (will try API anyway): %s", err)
 
     async def _request(
         self,
@@ -151,7 +187,15 @@ class CellcomEnergyClient:
                     raise CellcomAuthError("Access token rejected (HTTP 401)")
 
                 if resp.status == 403:
-                    raise CellcomAuthError("Access forbidden (HTTP 403)")
+                    # 403 is usually an Imperva WAF block, not an auth issue.
+                    # Raise as CellcomConnectionError so the UI shows "cannot connect"
+                    # rather than misleading the user about their credentials.
+                    _LOGGER.warning(
+                        "Cellcom API returned 403 for %s — likely WAF block (Imperva). "
+                        "Check that the HA server IP is not rate-limited.",
+                        endpoint,
+                    )
+                    raise CellcomConnectionError("Request blocked by server (HTTP 403)")
 
                 if resp.status >= 500 and retry < MAX_RETRIES:
                     wait = RETRY_BACKOFF_BASE ** retry
@@ -184,7 +228,11 @@ class CellcomEnergyClient:
     # ── Authentication ─────────────────────────────────────────────────────────
 
     async def async_login_step1(self, phone: str) -> str:
-        """Start OTP login. Returns the GUID needed for step 2."""
+        """Start OTP login. Returns the GUID needed for step 2.
+
+        Primes the session with WAF cookies before sending the login request.
+        """
+        await self.async_prime_session()
         body = await self._request(
             "PUT",
             ENDPOINT_LOGIN_STEP1,

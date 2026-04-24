@@ -45,7 +45,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to Cellcom servers. Check your internet connection.",
+      "cannot_connect": "Unable to reach Cellcom servers. Check your internet connection or try again in a few minutes.",
       "invalid_phone": "Invalid phone number. Enter a valid Israeli mobile number.",
       "invalid_otp": "The code is incorrect or has expired. Request a new code and try again.",
       "invalid_id": "The ID number does not match this account.",

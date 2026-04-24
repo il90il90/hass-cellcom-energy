@@ -86,10 +86,12 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 self._guid = await client.async_login_step1(phone)
                 return await self.async_step_otp()
-            except CellcomConnectionError:
+            except CellcomConnectionError as err:
+                _LOGGER.warning("LoginStep1 connection error: %s", err)
                 errors["base"] = "cannot_connect"
-            except CellcomAuthError:
-                errors["base"] = "invalid_phone"
+            except CellcomAuthError as err:
+                _LOGGER.warning("LoginStep1 auth error: %s", err)
+                errors["base"] = "cannot_connect"
             except Exception:
                 _LOGGER.exception("Unexpected error in LoginStep1")
                 errors["base"] = "unknown"
