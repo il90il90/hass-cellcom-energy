@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import CellcomEnergyClient, _generate_device_id, _generate_session_id
+from .auth_view import CellcomAuthView
 from .const import (
     CONF_ID_NUMBER,
     CONF_PHONE,
@@ -29,6 +30,18 @@ from .exceptions import (
 from .models import Tokens
 
 _LOGGER = logging.getLogger(__name__)
+
+# Tracks whether the auth HTTP view has been registered in this HA session.
+_AUTH_VIEW_REGISTERED = False
+
+
+def _ensure_auth_view_registered(hass: HomeAssistant) -> None:
+    """Register the /api/cellcom_energy/auth HTTP view exactly once."""
+    global _AUTH_VIEW_REGISTERED
+    if not _AUTH_VIEW_REGISTERED:
+        hass.http.register_view(CellcomAuthView(hass))
+        _AUTH_VIEW_REGISTERED = True
+        _LOGGER.debug("Cellcom Energy: registered /api/cellcom_energy/auth")
 
 # Extra keys stored temporarily during the flow (not persisted to config entry)
 _FLOW_GUID = "guid"
@@ -87,7 +100,9 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             return self.async_external_step_done(next_step_id="otp")
 
-        # First call: send user to the browser login page.
+        # First call: ensure the HTTP view is registered, then open the browser.
+        _ensure_auth_view_registered(self.hass)
+
         ha_url = (
             self.hass.config.external_url
             or self.hass.config.internal_url
