@@ -1,6 +1,16 @@
 {
   "config": {
     "step": {
+      "user": {
+        "title": "Cellcom Energy — Login",
+        "description": "Enter your Cellcom account phone number. You will receive an SMS with a one-time code.",
+        "data": {
+          "phone": "Phone number"
+        },
+        "data_description": {
+          "phone": "The mobile number registered to your Cellcom account (e.g. 0502959996)"
+        }
+      },
       "phone": {
         "title": "Cellcom Energy — Login",
         "description": "Enter your Cellcom account phone number. You will receive an SMS with a one-time code.",

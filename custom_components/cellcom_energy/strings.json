@@ -1,7 +1,7 @@
 {
   "config": {
     "step": {
-      "phone": {
+      "user": {
         "title": "Cellcom Energy — Login",
         "description": "Enter your Cellcom account phone number. You will receive an SMS with a one-time code.",
         "data": {
@@ -21,6 +21,24 @@
       "id_number": {
         "title": "Verify Your Identity",
         "description": "Enter the Israeli ID number (תעודת זהות) registered to your Cellcom account.",
+        "data": {
+          "id_number": "ID number (תעודת זהות)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Cellcom Energy",
+        "description": "Your session has expired. Click confirm to send a new SMS code to {phone}."
+      },
+      "reauth_otp": {
+        "title": "Enter New SMS Code",
+        "description": "A new 6-digit code was sent to {phone}.",
+        "data": {
+          "otp_code": "Verification code"
+        }
+      },
+      "reauth_id": {
+        "title": "Verify Your Identity",
+        "description": "Enter your Israeli ID number to complete re-authentication.",
         "data": {
           "id_number": "ID number (תעודת זהות)"
         }

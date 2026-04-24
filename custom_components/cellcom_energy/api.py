@@ -1,0 +1,601 @@
+"""HTTP client for the Cellcom digital API."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+import uuid
+from typing import Any
+
+import aiohttp
+
+from .const import (
+    BASE_URL,
+    CLIENT_ID,
+    ENDPOINT_ALL_INVOICES,
+    ENDPOINT_ALL_PRODUCTS,
+    ENDPOINT_CUSTOMER_INIT,
+    ENDPOINT_FULL_MAIN,
+    ENDPOINT_INVOICE_DATA,
+    ENDPOINT_LOGIN_STEP1,
+    ENDPOINT_LOGIN_STEP2,
+    ENDPOINT_LOGIN_STEP3,
+    MAX_RETRIES,
+    OTP_ORIGIN,
+    RETRY_BACKOFF_BASE,
+    SCOPE,
+)
+from .exceptions import (
+    CellcomAPIError,
+    CellcomAuthError,
+    CellcomConnectionError,
+    CellcomIDError,
+    CellcomOTPError,
+    CellcomTokenExpiredError,
+)
+from .models import (
+    BillingPeriod,
+    CellcomData,
+    CustomerInfo,
+    Invoice,
+    InvoiceAmount,
+    MeterInfo,
+    MonthlyHistory,
+    TariffPlan,
+    Tokens,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _generate_device_id() -> str:
+    """Generate a stable-looking DeviceId in the format used by the web portal."""
+    raw = uuid.uuid4().hex
+    return f"{raw[:6]}-{raw[6:9]}-{raw[9:12]}-{raw[12:16]}-{raw[16:28]}"
+
+
+def _generate_session_id() -> str:
+    """Generate a SessionID UUID."""
+    raw = uuid.uuid4().hex
+    return f"{raw[:7]}-{raw[7:11]}-{raw[11:15]}-{raw[15:17]}-{raw[17:29]}"
+
+
+def _parse_date_ddmmyy(value: str) -> str:
+    """Convert 'dd.mm.yy' format to ISO 'yyyy-mm-dd'."""
+    try:
+        parts = value.strip().split(".")
+        if len(parts) == 3:
+            dd, mm, yy = parts
+            return f"20{yy}-{mm}-{dd}"
+    except Exception:
+        pass
+    return value
+
+
+def _parse_cycle_date(cycle_date: int) -> str:
+    """Convert integer cycle date (yyyymmdd) to ISO format."""
+    s = str(cycle_date)
+    if len(s) == 8:
+        return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+    return s
+
+
+class CellcomEnergyClient:
+    """Async HTTP client for the Cellcom digital API."""
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        device_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Initialise the client with an aiohttp session and optional persistent IDs."""
+        self._session = session
+        self._device_id = device_id or _generate_device_id()
+        self._session_id = session_id or _generate_session_id()
+
+    @property
+    def device_id(self) -> str:
+        """Return the persistent device ID."""
+        return self._device_id
+
+    @property
+    def session_id(self) -> str:
+        """Return the session ID."""
+        return self._session_id
+
+    def _base_headers(self) -> dict[str, str]:
+        """Return headers sent on every request."""
+        return {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "ClientID": CLIENT_ID,
+            "Content-Type": "application/json",
+            "DeviceId": self._device_id,
+            "Origin": "https://cellcom.co.il",
+            "Referer": "https://cellcom.co.il/",
+            "SessionID": self._session_id,
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/147.0.0.0 Safari/537.36"
+            ),
+        }
+
+    async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: dict[str, Any] | None = None,
+        bearer: str | None = None,
+        retry: int = 0,
+    ) -> dict[str, Any]:
+        """Send a single API request and return the parsed JSON body."""
+        headers = self._base_headers()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+
+        url = f"{BASE_URL}{endpoint}"
+
+        try:
+            async with self._session.request(
+                method,
+                url,
+                headers=headers,
+                json=json,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status == 401:
+                    raise CellcomAuthError("Access token rejected (HTTP 401)")
+
+                if resp.status == 403:
+                    raise CellcomAuthError("Access forbidden (HTTP 403)")
+
+                if resp.status >= 500 and retry < MAX_RETRIES:
+                    wait = RETRY_BACKOFF_BASE ** retry
+                    _LOGGER.warning(
+                        "Cellcom API returned %s, retrying in %ss (attempt %s/%s)",
+                        resp.status, wait, retry + 1, MAX_RETRIES,
+                    )
+                    await asyncio.sleep(wait)
+                    return await self._request(
+                        method, endpoint, json=json, bearer=bearer, retry=retry + 1
+                    )
+
+                resp.raise_for_status()
+                data: dict[str, Any] = await resp.json(content_type=None)
+
+        except aiohttp.ClientConnectionError as err:
+            raise CellcomConnectionError(f"Connection error: {err}") from err
+        except aiohttp.ClientResponseError as err:
+            raise CellcomConnectionError(f"HTTP error {err.status}") from err
+
+        header = data.get("Header", {})
+        return_code = header.get("ReturnCode", -1)
+        if return_code != 0:
+            msg = header.get("ReturnCodeMessage", "Unknown error")
+            _LOGGER.error("Cellcom API error [%s]: %s", return_code, msg)
+            raise CellcomAPIError(return_code, msg)
+
+        return data.get("Body", data)
+
+    # ── Authentication ─────────────────────────────────────────────────────────
+
+    async def async_login_step1(self, phone: str) -> str:
+        """Start OTP login. Returns the GUID needed for step 2."""
+        body = await self._request(
+            "PUT",
+            ENDPOINT_LOGIN_STEP1,
+            json={
+                "Subscriber": phone,
+                "IsExtended": False,
+                "ProcessType": "",
+                "OtpOrigin": OTP_ORIGIN,
+            },
+        )
+        guid = body.get("Guid")
+        if not guid:
+            raise CellcomAuthError("LoginStep1 did not return a Guid")
+        _LOGGER.debug("LoginStep1 succeeded, Guid received")
+        return guid
+
+    async def async_login_step2(self, guid: str, otp_code: str, phone: str) -> str:
+        """Verify OTP code. Returns a preliminary JWT for step 3."""
+        try:
+            body = await self._request(
+                "PUT",
+                ENDPOINT_LOGIN_STEP2,
+                json={
+                    "Guid": guid,
+                    "OtpCode": otp_code,
+                    "Subscriber": phone,
+                    "RestrictCode": "",
+                    "TermsAccepted": False,
+                    "CheckPhoneNumber": "",
+                    "LoginType": "",
+                    "idNumber": "",
+                    "CustomerEmail": "",
+                    "ProcessType": "",
+                    "OtpOrigin": OTP_ORIGIN,
+                    "OriginProcess": "",
+                },
+            )
+        except CellcomAPIError as err:
+            raise CellcomOTPError(f"OTP verification failed: {err}") from err
+
+        # The preliminary JWT is returned directly in the body
+        token = body.get("accessToken") or body.get("token") or body.get("Token")
+        if not token and isinstance(body, dict):
+            # Some responses wrap it differently
+            for key in ("AccessToken", "preliminaryToken"):
+                token = body.get(key)
+                if token:
+                    break
+        if not token:
+            # Try to use the raw body as the token (some API versions return token directly)
+            raw = str(body) if not isinstance(body, str) else body
+            if len(raw) > 100:  # Looks like a JWT
+                token = raw
+        if not token:
+            raise CellcomOTPError("LoginStep2 did not return a token")
+
+        _LOGGER.debug("LoginStep2 succeeded, preliminary token received")
+        return token
+
+    async def async_login_step3(
+        self, preliminary_jwt: str, id_number: str, phone: str
+    ) -> Tokens:
+        """Verify ID number, return full production token pair."""
+        try:
+            body = await self._request(
+                "PUT",
+                ENDPOINT_LOGIN_STEP3,
+                json={
+                    "Subscriber": phone,
+                    "IdNumber": id_number,
+                    "Scope": SCOPE,
+                    "Code": "",
+                    "OtpOrigin": OTP_ORIGIN,
+                },
+                bearer=preliminary_jwt,
+            )
+        except CellcomAPIError as err:
+            raise CellcomIDError(f"ID number verification failed: {err}") from err
+
+        extra = body.get("extra", body)
+        token_det = extra.get("tokenDet", {})
+
+        access = extra.get("accessToken") or token_det.get("access_token")
+        refresh = extra.get("refreshToken") or token_det.get("refresh_token")
+        expires_in = token_det.get("expires_in", 71552)
+
+        if not access or not refresh:
+            raise CellcomAuthError("LoginStep3 did not return tokens")
+
+        now = int(time.time())
+        tokens = Tokens(
+            access_token=access,
+            refresh_token=refresh,
+            access_expires_at=now + expires_in,
+            refresh_expires_at=now + 10800,  # Observed ~3 hours
+            device_id=self._device_id,
+            session_id=self._session_id,
+        )
+        _LOGGER.debug("LoginStep3 succeeded, tokens received (expires in %ss)", expires_in)
+        return tokens
+
+    # ── Data endpoints ─────────────────────────────────────────────────────────
+
+    async def async_get_customer_init(self, access_token: str) -> dict[str, Any]:
+        """Fetch the subscriber product list (identifies Energy BAN and subscriber)."""
+        return await self._request(
+            "PUT", ENDPOINT_CUSTOMER_INIT, bearer=access_token
+        )
+
+    async def async_get_invoice_data(
+        self, access_token: str, ban: str
+    ) -> dict[str, Any]:
+        """Fetch the current billing period summary for a BAN."""
+        return await self._request(
+            "PUT",
+            ENDPOINT_INVOICE_DATA,
+            json={"BanId": ban},
+            bearer=access_token,
+        )
+
+    async def async_get_all_invoices(
+        self, access_token: str, ban: str
+    ) -> dict[str, Any]:
+        """Fetch the invoice list with amounts and kWh for a BAN."""
+        return await self._request(
+            "PUT",
+            ENDPOINT_ALL_INVOICES,
+            json={"BanId": ban},
+            bearer=access_token,
+        )
+
+    async def async_get_full_main(
+        self, access_token: str, ban: str
+    ) -> dict[str, Any]:
+        """Fetch the monthly consumption history for a BAN."""
+        return await self._request(
+            "PUT",
+            ENDPOINT_FULL_MAIN,
+            json={"BanId": ban},
+            bearer=access_token,
+        )
+
+    async def async_get_all_products(
+        self, access_token: str, ban: str, subscriber: str
+    ) -> dict[str, Any]:
+        """Fetch meter number, contract, and tariff plan details."""
+        return await self._request(
+            "PUT",
+            ENDPOINT_ALL_PRODUCTS,
+            json={"BanId": ban, "PsId": subscriber},
+            bearer=access_token,
+        )
+
+    async def async_fetch_all(
+        self, access_token: str, ban: str, subscriber: str
+    ) -> CellcomData:
+        """Fetch all data endpoints in parallel and return a CellcomData instance."""
+        results = await asyncio.gather(
+            self.async_get_invoice_data(access_token, ban),
+            self.async_get_all_invoices(access_token, ban),
+            self.async_get_full_main(access_token, ban),
+            self.async_get_all_products(access_token, ban, subscriber),
+            return_exceptions=True,
+        )
+
+        invoice_data_raw, invoices_raw, history_raw, products_raw = results
+
+        for name, result in zip(
+            ["invoice_data", "all_invoices", "full_main", "all_products"], results
+        ):
+            if isinstance(result, Exception):
+                _LOGGER.warning("Cellcom API partial failure on %s: %s", name, result)
+
+        return _parse_cellcom_data(
+            ban=ban,
+            subscriber=subscriber,
+            invoice_data_raw=invoice_data_raw if not isinstance(invoice_data_raw, Exception) else {},
+            invoices_raw=invoices_raw if not isinstance(invoices_raw, Exception) else {},
+            history_raw=history_raw if not isinstance(history_raw, Exception) else {},
+            products_raw=products_raw if not isinstance(products_raw, Exception) else {},
+        )
+
+
+# ── Response parsers ───────────────────────────────────────────────────────────
+
+def _parse_cellcom_data(
+    ban: str,
+    subscriber: str,
+    invoice_data_raw: dict,
+    invoices_raw: dict,
+    history_raw: dict,
+    products_raw: dict,
+) -> CellcomData:
+    """Parse raw API responses into a CellcomData dataclass."""
+    return CellcomData(
+        ban=ban,
+        subscriber_number=subscriber,
+        current_invoice=_parse_current_invoice(ban, invoices_raw),
+        billing_period=_parse_billing_period(invoice_data_raw),
+        meter=_parse_meter_info(ban, subscriber, products_raw),
+        tariff_plan=_parse_tariff_plan(products_raw),
+        customer=None,  # Populated from CustomerInit if needed
+        history=_parse_history(history_raw),
+    )
+
+
+def _parse_current_invoice(ban: str, raw: dict) -> Invoice | None:
+    """Extract the most recent energy invoice."""
+    invoices = raw.get("dataInvoices", [])
+    energy_invoices = [i for i in invoices if i.get("isEnergy") and i.get("ban") == ban]
+    if not energy_invoices:
+        energy_invoices = [i for i in invoices if i.get("isEnergy")]
+    if not energy_invoices:
+        return None
+
+    inv = energy_invoices[0]
+    price_data = inv.get("invoivePrice", {})
+    cycle = str(inv.get("cycle_date", ""))
+    period_str = inv.get("fullCycleDate", "")
+    parts = [p.strip() for p in period_str.split("-")] if "-" in period_str else []
+
+    return Invoice(
+        guid_id=inv.get("guidId", ""),
+        ban=inv.get("ban", ban),
+        cycle_date=inv.get("cycle_date", 0),
+        full_cycle_date=period_str,
+        period_start=_parse_date_ddmmyy(parts[1]) if len(parts) == 2 else "",
+        period_end=_parse_date_ddmmyy(parts[0]) if len(parts) == 2 else "",
+        amount=InvoiceAmount(
+            price=float(price_data.get("price", 0) or 0),
+            amount=int(price_data.get("amount", 0) or 0),
+            amount_agorot=int(price_data.get("amountAgorot", 0) or 0),
+            is_credit=bool(price_data.get("isCreditExists")),
+        ),
+        is_energy=True,
+        services=inv.get("listServices", ["ENERGY"]),
+        bill_url=f"https://cellcom.co.il/selfcare/InvoicePageNew?id={inv.get('guidId', '')}",
+    )
+
+
+def _parse_billing_period(raw: dict) -> BillingPeriod | None:
+    """Parse the current billing period summary."""
+    per_ban = raw.get("customerPerBan", {})
+    if not per_ban:
+        return None
+
+    def safe_date(val: str) -> str:
+        """Convert dd/mm/yyyy to ISO yyyy-mm-dd."""
+        try:
+            parts = val.strip().split("/")
+            if len(parts) == 3:
+                dd, mm, yyyy = parts
+                return f"{yyyy}-{mm}-{dd}"
+        except Exception:
+            pass
+        return val
+
+    return BillingPeriod(
+        total_sum=float(per_ban.get("totalSum", 0) or 0),
+        period_start=safe_date(per_ban.get("periodStartDate", "")),
+        period_end=safe_date(per_ban.get("periodEndDate", "")),
+        bill_due_date=safe_date(per_ban.get("billDueDate", "")),
+        invoice_number=per_ban.get("invoiceNo", ""),
+        payment_type=per_ban.get("paymentType", ""),
+        payment_type_desc=per_ban.get("paymentTypeDesc", ""),
+        credit_card_type=per_ban.get("creditCardType", ""),
+        credit_card_type_desc=per_ban.get("creditCardTypeDesc", ""),
+        bill_method=(per_ban.get("billMethod") or "").strip(),
+        bill_method_desc=per_ban.get("billMethodDesc", ""),
+        email_bill_dest=per_ban.get("emailBillDest", ""),
+    )
+
+
+def _parse_history(raw: dict) -> list[MonthlyHistory]:
+    """Parse the monthly consumption history list."""
+    items = raw.get("history", [])
+    result: list[MonthlyHistory] = []
+
+    for item in items:
+        kwh_details = item.get("kwhDetails", {})
+        amount_data = item.get("amountData", {})
+        cycle_date = item.get("cycleDate", 0)
+
+        try:
+            kwh = float(kwh_details.get("kwh", 0) or 0)
+        except (ValueError, TypeError):
+            kwh = 0.0
+
+        try:
+            amount = float(amount_data.get("price", 0) or 0)
+        except (ValueError, TypeError):
+            amount = None
+
+        year = item.get("periodYear", "")
+        cycle_month = item.get("cycleMonthName", "")
+        cycle_date_iso = _parse_cycle_date(cycle_date)
+        month_iso = cycle_date_iso[:7] if len(cycle_date_iso) >= 7 else ""
+
+        result.append(
+            MonthlyHistory(
+                month=month_iso,
+                cycle_date=cycle_date,
+                bill_periods=item.get("billPeriods", ""),
+                cycle_month_name=cycle_month,
+                period_year=year,
+                kwh=kwh,
+                amount=amount,
+                is_view_pdf=bool(item.get("isViewPdf")),
+            )
+        )
+
+    return sorted(result, key=lambda h: h.cycle_date)
+
+
+def _parse_meter_info(ban: str, subscriber: str, raw: dict) -> MeterInfo | None:
+    """Parse meter and contract details from GetAllProductsAuth."""
+    products = raw.get("allDetailsCliProduct", [])
+    energy = next((p for p in products if p.get("detailsType") == "ENERGY"), None)
+    if not energy:
+        return None
+
+    items = energy.get("allDalDetailsCli", [])
+    if not items:
+        return None
+
+    item = items[0]
+    return MeterInfo(
+        meter_number=item.get("userPhone", item.get("titleDescription", "")),
+        contract_number=item.get("subTitleDescription", ""),
+        customer_address=item.get("address", ""),
+        subscriber_number=subscriber,
+        ban=ban,
+        asset_external_id=item.get("assetExternalId", ""),
+        product_id=item.get("productId", ""),
+        product_status=item.get("productStatus", ""),
+        product_status_desc=item.get("productStatusDesc", ""),
+        product_type=item.get("productType", ""),
+        is_business=bool(item.get("isBusinness") or item.get("isBusiness")),
+        is_energy_bundle=bool(item.get("isEnergyBundle")),
+        account_type=item.get("accountType", ""),
+    )
+
+
+def _parse_tariff_plan(raw: dict) -> TariffPlan | None:
+    """Parse tariff plan and discount details from GetAllProductsAuth."""
+    products = raw.get("allDetailsCliProduct", [])
+    energy = next((p for p in products if p.get("detailsType") == "ENERGY"), None)
+    if not energy:
+        return None
+
+    items = energy.get("allDalDetailsCli", [])
+    if not items:
+        return None
+
+    item = items[0]
+
+    # Extract plan details text (nested list of lists)
+    plan_texts: list[str] = []
+    for row in item.get("listPlanDtlText", []):
+        if isinstance(row, list):
+            plan_texts.extend(str(t) for t in row)
+        else:
+            plan_texts.append(str(row))
+    plan_text = " ".join(plan_texts)
+
+    # Extract comments
+    comments: list[str] = []
+    for row in item.get("listCommentText", []):
+        if isinstance(row, list):
+            comments.extend(str(t) for t in row)
+        else:
+            comments.append(str(row))
+
+    # Try to parse discount details from plan text
+    discount_percent = 0
+    discount_hours_start = ""
+    discount_hours_end = ""
+    discount_days: list[str] = []
+
+    import re
+    if pct_match := re.search(r"(\d+)\s*אחוז", plan_text):
+        discount_percent = int(pct_match.group(1))
+    if hours_match := re.search(r"(\d{2}:\d{2})\s*עד\s*(\d{2}:\d{2})", plan_text):
+        discount_hours_start = hours_match.group(1)
+        discount_hours_end = hours_match.group(2)
+    if "א' עד ה'" in plan_text or "ראשון עד חמישי" in plan_text:
+        discount_days = ["Sun", "Mon", "Tue", "Wed", "Thu"]
+
+    plan_details = item.get("listPlanDtlText", [[""]])
+    plan_start = ""
+    if plan_text:
+        if date_match := re.search(r"(\d{2}\.\d{2}\.\d{4})", plan_text):
+            raw_date = date_match.group(1)
+            parts = raw_date.split(".")
+            if len(parts) == 3:
+                plan_start = f"{parts[2]}-{parts[1]}-{parts[0]}"
+
+    # Plan name and code from subscriber data (not available here, use placeholder)
+    plan_name = item.get("pricePlanDesc", "")
+    plan_code = item.get("pricePlanCode", "")
+
+    return TariffPlan(
+        plan_code=plan_code,
+        plan_description=plan_name,
+        plan_start_date=plan_start,
+        plan_details_text=plan_text,
+        discount_percent=discount_percent,
+        discount_days=discount_days,
+        discount_hours_start=discount_hours_start,
+        discount_hours_end=discount_hours_end,
+        future_plan_code="",
+        future_plan_desc="",
+        comments=comments,
+    )
