@@ -62,28 +62,40 @@ _INTERCEPT_SNIPPET = (
 )
 
 # ── Snippet B: paste when ALREADY logged in ───────────────────────────────────
-# Reads the JWT directly from localStorage and copies it to the clipboard.
-# Falls back to a prompt() dialog if the Clipboard API is unavailable.
+# Tries multiple strategies to locate the JWT in localStorage:
+#   1. Direct keys: accessToken, auth_token (plain or unescape-decoded JSON)
+#   2. refresh_token as fallback (accepted by the integration)
+#   3. Full scan of all storage entries
 _EXTRACT_SNIPPET = (
     "(function(){"
-    "var at=localStorage.getItem('accessToken')||localStorage.getItem('auth_token')||'';"
-    # Scan all storage if direct keys not found
-    "if(!at.startsWith('eyJ')){"
+    # Helper: extract JWT from a raw localStorage value (plain, JSON, or unescape-encoded)
+    "function extractJwt(raw){"
+    "if(!raw)return '';"
+    "if(raw.startsWith('eyJ'))return raw;"          # plain JWT
+    "try{var o=JSON.parse(raw);"                    # JSON object
+    "return o.access_token||o.accessToken||o.token||'';}"
+    "catch(e){}"
+    "try{var d=unescape(raw);"                      # unescape-encoded
+    "if(d.startsWith('eyJ'))return d;"
+    "var o2=JSON.parse(d);return o2.access_token||o2.accessToken||o2.token||'';}"
+    "catch(e2){}"
+    "return '';}"
+    # Try well-known keys
+    "var at=extractJwt(localStorage.getItem('accessToken'))"
+    "||extractJwt(localStorage.getItem('auth_token'))"
+    "||extractJwt(localStorage.getItem('refresh_token'));"   # refresh token as fallback
+    # Full scan if still not found
+    "if(!at){"
     "[localStorage,sessionStorage].forEach(function(s){"
-    "for(var i=0;i<s.length;i++){"
-    "var raw=s.getItem(s.key(i))||'';"
-    "if(!raw.includes('eyJ'))continue;"
-    "try{var o=JSON.parse(raw);if(o&&o.accessToken&&o.accessToken.startsWith('eyJ'))at=o.accessToken;}"
-    "catch(e){if(raw.startsWith('eyJ'))at=raw;}"
-    "}"
+    "for(var i=0;i<s.length;i++){var j=extractJwt(s.getItem(s.key(i)));if(j&&!at)at=j;}"
     "});}"
-    "if(!at.startsWith('eyJ')){alert('Token not found.');return;}"
-    # Copy to clipboard — try modern API first, then DevTools copy(), then prompt()
+    "if(!at){alert('Token not found. Keys: '+Object.keys(localStorage).join(', '));return;}"
+    # Copy to clipboard
     "if(navigator.clipboard&&navigator.clipboard.writeText){"
     "navigator.clipboard.writeText(at).then(function(){"
-    "alert('[Cellcom Energy] Token copied!\\nPaste it in the Home Assistant field.');});"
-    "}else if(typeof copy==='function'){copy(at);alert('[Cellcom Energy] Token copied!\\nPaste it in the Home Assistant field.');}"
-    "else{prompt('Copy this token and paste in Home Assistant:',at);}"
+    "alert('[Cellcom Energy] Token copied! Paste in HA.');});}"
+    "else if(typeof copy==='function'){copy(at);alert('[Cellcom Energy] Token copied! Paste in HA.');}"
+    "else{prompt('Copy and paste in Home Assistant:',at);}"
     "})()"
 )
 
@@ -214,12 +226,14 @@ def _parse_tokens_json(raw: str) -> tuple[str, str] | None:
     """Parse tokens from user input.
 
     Accepts:
-      - {"accessToken": "eyJ...", "refreshToken": "eyJ..."}
-      - Plain JWT string starting with "eyJ" (refreshToken left empty)
+      - {"accessToken": "eyJ...", "refreshToken": "eyJ..."}  — full JSON
+      - Plain JWT string starting with "eyJ"                 — used as access token
+      - unescape()-encoded JSON containing access_token key  — decoded automatically
+    Returns (access_token, refresh_token); refresh_token may be empty.
     """
     raw = raw.strip().strip('"')
 
-    # Plain JWT pasted directly
+    # Plain JWT pasted directly (could be access or refresh token)
     if raw.startswith("eyJ") and "." in raw:
         return raw, ""
 
@@ -232,6 +246,19 @@ def _parse_tokens_json(raw: str) -> tuple[str, str] | None:
             return at, rt
     except (json.JSONDecodeError, AttributeError):
         pass
+
+    # unescape()-encoded value (Cellcom stores auth_token this way)
+    try:
+        import urllib.parse
+        decoded = raw.encode("utf-8").decode("unicode_escape")
+        data2 = json.loads(decoded)
+        at2 = data2.get("access_token") or data2.get("accessToken") or ""
+        rt2 = data2.get("refresh_token") or data2.get("refreshToken") or ""
+        if at2.startswith("eyJ"):
+            return at2, rt2
+    except Exception:
+        pass
+
     return None
 
 
