@@ -106,12 +106,22 @@ class CellcomEnergyCoordinator(DataUpdateCoordinator[CellcomData]):
         )
 
     def _is_access_token_expiring(self, tokens: Tokens) -> bool:
-        """Return True if the access token expires within the refresh threshold."""
+        """Return True if the access token expires within the refresh threshold.
+
+        Returns False if access_expires_at is 0 (unknown expiry — trust the token).
+        """
+        if tokens.access_expires_at == 0:
+            return False
         remaining = tokens.access_expires_at - int(time.time())
         return remaining < TOKEN_REFRESH_THRESHOLD_SECONDS
 
     def _is_refresh_token_valid(self, tokens: Tokens) -> bool:
-        """Return True if the refresh token has not yet expired."""
+        """Return True if the refresh token has not yet expired.
+
+        Returns True if refresh_expires_at is 0 (unknown — assume still valid).
+        """
+        if tokens.refresh_expires_at == 0:
+            return True
         return tokens.refresh_expires_at > int(time.time())
 
     # ── Core update logic ──────────────────────────────────────────────────────

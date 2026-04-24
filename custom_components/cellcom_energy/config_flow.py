@@ -183,12 +183,17 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(f"cellcom_energy_{ban}")
         self._abort_if_unique_id_configured()
 
+        # Extract real expiry from the JWT so the coordinator does not
+        # immediately think the token is expired and trigger a refresh.
+        access_exp = _extract_jwt_expiry(self._access_token)
+        refresh_exp = _extract_jwt_expiry(self._refresh_token) if self._refresh_token else 0
+
         # Persist tokens to HA Storage
         tokens = Tokens(
             access_token=self._access_token,
             refresh_token=self._refresh_token,
-            access_expires_at=0,   # Will be refreshed on first coordinator run
-            refresh_expires_at=0,
+            access_expires_at=access_exp,
+            refresh_expires_at=refresh_exp,
             device_id=self._device_id,
             session_id=self._session_id,
         )
@@ -267,12 +272,24 @@ def _extract_client_id_from_jwt(token: str) -> str:
         parts = token.split(".")
         if len(parts) < 2:
             return ""
-        # Add padding so base64 decoding works
         payload_b64 = parts[1] + "=="
         payload = json.loads(base64.b64decode(payload_b64))
         return payload.get("CLIENT_ID") or payload.get("client_id") or ""
     except Exception:
         return ""
+
+
+def _extract_jwt_expiry(token: str) -> int:
+    """Return the 'exp' claim from a JWT as a Unix timestamp (0 if missing/invalid)."""
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return 0
+        payload_b64 = parts[1] + "=="
+        payload = json.loads(base64.b64decode(payload_b64))
+        return int(payload.get("exp", 0))
+    except Exception:
+        return 0
 
 
 def _extract_energy_info(init_data: dict) -> tuple[str, str, str]:
