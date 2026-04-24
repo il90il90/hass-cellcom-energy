@@ -1,0 +1,15 @@
+{
+  "domain": "cellcom_energy",
+  "name": "Cellcom Energy",
+  "codeowners": ["@your-github"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/your-user/hass-cellcom-energy",
+  "homeassistant": "2024.1.0",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/your-user/hass-cellcom-energy/issues",
+  "quality_scale": "silver",
+  "requirements": ["aiohttp>=3.9.0"],
+  "version": "0.1.0"
+}

@@ -1,0 +1,54 @@
+{
+  "config": {
+    "step": {
+      "phone": {
+        "title": "Cellcom Energy — Login",
+        "description": "Enter your Cellcom account phone number. You will receive an SMS with a one-time code.",
+        "data": {
+          "phone": "Phone number"
+        },
+        "data_description": {
+          "phone": "The mobile number registered to your Cellcom account (e.g. 0502959996)"
+        }
+      },
+      "otp": {
+        "title": "Enter SMS Code",
+        "description": "A 6-digit code was sent to {phone}. Enter it below.",
+        "data": {
+          "otp_code": "Verification code"
+        }
+      },
+      "id_number": {
+        "title": "Verify Your Identity",
+        "description": "Enter the Israeli ID number (תעודת זהות) registered to your Cellcom account.",
+        "data": {
+          "id_number": "ID number (תעודת זהות)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Cellcom servers. Check your internet connection.",
+      "invalid_phone": "Invalid phone number. Enter a valid Israeli mobile number.",
+      "invalid_otp": "The code is incorrect or has expired. Request a new code and try again.",
+      "invalid_id": "The ID number does not match this account.",
+      "otp_expired": "The verification code has expired. Please restart the login.",
+      "too_many_attempts": "Too many failed attempts. Wait a few minutes and try again.",
+      "unknown": "Unexpected error. See the HA log for details."
+    },
+    "abort": {
+      "already_configured": "This Cellcom account is already configured.",
+      "reauth_successful": "Re-authentication successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Cellcom Energy Options",
+        "data": {
+          "scan_interval": "Update interval (minutes)",
+          "show_diagnostic": "Show diagnostic entities"
+        }
+      }
+    }
+  }
+}

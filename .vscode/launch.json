@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Home Assistant: Debug",
+      "type": "python",
+      "request": "launch",
+      "module": "homeassistant",
+      "justMyCode": false,
+      "args": ["-c", "${workspaceFolder}/config"],
+      "env": {
+        "PYTHONDONTWRITEBYTECODE": "1"
+      }
+    },
+    {
+      "name": "pytest: Current File",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "pytest: All Tests",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/", "-v", "--cov=custom_components.cellcom_energy"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}
