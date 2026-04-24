@@ -122,13 +122,8 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if parsed is None:
                 errors["tokens_json"] = "invalid_tokens_json"
             else:
-                access_token, refresh_token = parsed
-                if not access_token.startswith("eyJ"):
-                    errors["tokens_json"] = "invalid_tokens_json"
-                else:
-                    self._access_token = access_token
-                    self._refresh_token = refresh_token
-                    return await self._async_validate_and_create()
+                self._access_token, self._refresh_token = parsed
+                return await self._async_validate_and_create()
 
         return self.async_show_form(
             step_id="user",
@@ -215,12 +210,24 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _parse_tokens_json(raw: str) -> tuple[str, str] | None:
-    """Parse {"accessToken": "...", "refreshToken": "..."} from user input."""
+    """Parse tokens from user input.
+
+    Accepts:
+      - {"accessToken": "eyJ...", "refreshToken": "eyJ..."}
+      - Plain JWT string starting with "eyJ" (refreshToken left empty)
+    """
+    raw = raw.strip().strip('"')
+
+    # Plain JWT pasted directly
+    if raw.startswith("eyJ") and "." in raw:
+        return raw, ""
+
+    # JSON object
     try:
         data = json.loads(raw)
         at = data.get("accessToken") or data.get("access_token") or ""
         rt = data.get("refreshToken") or data.get("refresh_token") or ""
-        if at and rt:
+        if at.startswith("eyJ"):
             return at, rt
     except (json.JSONDecodeError, AttributeError):
         pass
