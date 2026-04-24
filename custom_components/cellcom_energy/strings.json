@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Cellcom Energy — Connect Account",
-        "description": "## How to get your Cellcom token\n\n**Step 1** — Log in to Cellcom in your browser:\n[Open Cellcom login page](https://cellcom.co.il/Authentication/otp-login-page/)\n\n**Step 2** — After logging in, open the browser console (**F12 → Console** tab) and run one of the commands below.\n\n**Try this first (access token):**\n```\ncopy(localStorage.getItem('auth_token').replace(/\"/g,''))\n```\n**Or this (refresh token):**\n```\ncopy(localStorage.getItem('refresh_token').replace(/\"/g,''))\n```\n\n**Step 3** — A notification *\"token copied\"* will appear (or use Ctrl+C on the selected text).\n\n**Step 4** — Paste the token in the field below and click **Submit**.",
+        "description": "## How to get your Cellcom token\n\n**Step 1** — Log in to Cellcom in your browser:\n[Open Cellcom login page](https://cellcom.co.il/Authentication/otp-login-page/)\n\n**Step 2** — After logging in, open the browser console (**F12 → Console** tab) and run:\n\n```\ncopy(JSON.parse(localStorage.getItem('auth_token')))\n```\n\nThe token is now in your clipboard.\n\n**Step 3** — Paste the token in the field below and click **Submit**.",
         "data": {
           "tokens_json": "Paste token here"
         },

@@ -101,22 +101,16 @@ Open the Cellcom login page and sign in with your phone number and SMS code:
 
 After logging in, open the **browser console** (press **F12** → click the **Console** tab).
 
-Run one of these commands. **Try the first one first** — it copies the access token:
+Run this command:
 
 ```javascript
-copy(localStorage.getItem('auth_token').replace(/"/g,''))
-```
-
-If that does not work, try the refresh token:
-
-```javascript
-copy(localStorage.getItem('refresh_token').replace(/"/g,''))
+copy(JSON.parse(localStorage.getItem('auth_token')))
 ```
 
 You will see `undefined` printed in the console — that is normal.
 Your token is now in the clipboard.
 
-> **Tip:** The command removes any surrounding quote characters automatically.
+> **Tip:** `JSON.parse` automatically removes any surrounding quote characters from the stored value.
 
 ---
 
