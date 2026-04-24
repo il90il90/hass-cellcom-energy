@@ -2,67 +2,20 @@
   "config": {
     "step": {
       "user": {
-        "title": "Cellcom Energy — Step 1 of 3",
-        "description": "Enter the mobile number registered to your Cellcom Energy account.",
+        "title": "Cellcom Energy — Connect Account",
+        "description": "## How to connect your Cellcom Energy account\n\n**Step 1 — Open Cellcom login page in your browser:**\n[Click here to open Cellcom login](https://cellcom.co.il/Authentication/otp-login-page/)\n\n**Step 2 — Open the browser console (F12 → Console tab) and paste:**\n```\n{snippet}\n```\nYou will see: *[Cellcom Energy] Interceptor active — now log in normally.*\n\n**Step 3 — Log in normally** with your phone number and SMS code.\n\n**Step 4 — After login succeeds**, a dialog will appear with your tokens. Copy the entire text and paste it below.",
         "data": {
-          "phone": "Phone number"
+          "tokens_json": "Paste token JSON here"
         },
         "data_description": {
-          "phone": "Israeli mobile number (e.g. 050-1234567)"
-        }
-      },
-      "browser_login": {
-        "title": "Cellcom Energy — Step 2 of 3",
-        "description": "**How to send the verification SMS:**\n\n1. Open **https://cellcom.co.il/my-cellcom** in your browser.\n2. Open the browser console: press **F12** → click the **Console** tab.\n3. Paste the command shown below and press **Enter**.\n4. A prompt will appear with a GUID — copy it and paste it in the field below.\n\n```\n{snippet}\n```\n\n*(Phone: {phone})*",
-        "data": {
-          "guid": "GUID (from the prompt dialog)"
-        },
-        "data_description": {
-          "guid": "Paste the GUID that appeared in the browser prompt after running the command"
-        }
-      },
-      "otp": {
-        "title": "Cellcom Energy — Step 3 of 3",
-        "description": "A 6-digit code was sent to **{phone}**. Enter it below.",
-        "data": {
-          "otp_code": "Verification code"
-        }
-      },
-      "id_number": {
-        "title": "Verify Your Identity",
-        "description": "Enter the Israeli ID number (תעודת זהות) registered to your Cellcom account.",
-        "data": {
-          "id_number": "ID number (תעודת זהות)"
-        }
-      },
-      "reauth_confirm": {
-        "title": "Re-authenticate Cellcom Energy",
-        "description": "Your session has expired. Follow the same steps to log in again for **{phone}**."
-      },
-      "reauth_otp": {
-        "title": "Enter New SMS Code",
-        "description": "A new 6-digit code was sent to {phone}.",
-        "data": {
-          "otp_code": "Verification code"
-        }
-      },
-      "reauth_id": {
-        "title": "Verify Your Identity",
-        "description": "Enter your Israeli ID number to complete re-authentication.",
-        "data": {
-          "id_number": "ID number (תעודת זהות)"
+          "tokens_json": "The JSON text that appeared in the dialog after logging in (starts with {\"accessToken\":...})"
         }
       }
     },
     "error": {
-      "cannot_connect": "Unable to reach Cellcom servers. Check your internet connection or try again in a few minutes.",
-      "invalid_phone": "Invalid phone number. Enter a valid Israeli mobile number (10 digits, starting with 0).",
-      "invalid_guid": "The GUID looks incorrect. Make sure you copied the full value from the browser prompt.",
-      "invalid_otp": "The code is incorrect or has expired. Re-run the browser command to get a new GUID and SMS code.",
-      "invalid_id": "The ID number does not match this account.",
-      "no_energy_account": "No Cellcom Energy account found for this number. Make sure you have an active electricity account.",
-      "otp_expired": "The verification code has expired. Please restart the login.",
-      "too_many_attempts": "Too many failed attempts. Wait a few minutes and try again.",
+      "cannot_connect": "Unable to reach Cellcom servers. Check your internet connection.",
+      "invalid_tokens_json": "The pasted text is not valid. Make sure you copied the full text from the dialog (it should start with {\"accessToken\":...).",
+      "no_energy_account": "No Cellcom Energy (electricity) account was found for this login. Make sure you have an active electricity account with Cellcom.",
       "unknown": "Unexpected error. See the HA log for details."
     },
     "abort": {

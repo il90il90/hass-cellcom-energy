@@ -195,23 +195,34 @@ def test_tracking_id() -> None:
         check("tracking_id function found via regex", False)
 
 
-# ─── TEST 5: Config flow guards ────────────────────────────────────────────────
+# ─── TEST 5: Config flow — fetch-interceptor / token-paste approach ───────────
 
 def test_config_flow() -> None:
-    print("\n[5] Config flow: console snippet approach")
+    print("\n[5] Config flow: fetch-interceptor token-paste approach")
     src = (INTEGRATION_DIR / "config_flow.py").read_text(encoding="utf-8")
-    # New flow: console snippet shown in HA UI, user pastes GUID back
-    check("async_step_browser_login defined", "async_step_browser_login" in src)
-    check("_make_console_snippet defined", "_make_console_snippet" in src)
-    check("snippet in description_placeholders", '"snippet"' in src)
-    check('GUID field in browser_login step', 'vol.Required("guid")' in src)
-    check("reCAPTCHA site key constant", "_RECAPTCHA_SITE_KEY" in src)
-    check("reCAPTCHA action constant", "_RECAPTCHA_ACTION" in src)
-    check("grecaptcha.execute in snippet builder", "grecaptcha.execute" in src)
-    check("LoginStep1 endpoint in snippet", "LoginStep1" in src)
-    check("prompt() shows GUID to user", "prompt(" in src)
 
-    # async_step_user should only ask for phone (no direct API calls)
+    # The interceptor snippet is defined at module level
+    check("_INTERCEPT_SNIPPET defined", "_INTERCEPT_SNIPPET" in src)
+    # The snippet must intercept LoginStep3 (the final login step)
+    check("LoginStep3 intercepted", "LoginStep3" in src)
+    # The snippet must patch window.fetch
+    check("window.fetch patched", "window.fetch" in src)
+    # The snippet must call prompt() to show the user their tokens
+    check("prompt() shows tokens to user", "prompt(" in src)
+    # Must accept tokens_json from the user
+    check("tokens_json field in schema", '"tokens_json"' in src or "'tokens_json'" in src)
+    # Must call _parse_tokens_json
+    check("_parse_tokens_json helper defined", "_parse_tokens_json" in src)
+    # Must use accessToken key
+    check("accessToken extracted", "accessToken" in src)
+    # Must use refreshToken key
+    check("refreshToken extracted", "refreshToken" in src)
+    # snippet in description_placeholders
+    check("snippet in description_placeholders", '"snippet"' in src)
+    # Reauth flow present
+    check("async_step_reauth defined", "async_step_reauth" in src)
+
+    # async_step_user should NOT call LoginStep1 (the API side is handled by the browser)
     import re as _re
     step_user_match = _re.search(
         r"async def async_step_user\b.*?(?=\n    async def |\Z)", src, _re.DOTALL
