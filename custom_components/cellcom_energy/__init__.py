@@ -8,10 +8,23 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
+from .auth_view import CellcomAuthView
 from .const import DOMAIN, PLATFORMS
 from .coordinator import CellcomEnergyCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+_AUTH_VIEW_REGISTERED = False
+
+
+async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
+    """Register the reCAPTCHA auth HTTP view once on first integration load."""
+    global _AUTH_VIEW_REGISTERED
+    if not _AUTH_VIEW_REGISTERED:
+        hass.http.register_view(CellcomAuthView(hass))
+        _AUTH_VIEW_REGISTERED = True
+        _LOGGER.debug("Cellcom Energy: registered /api/cellcom_energy/auth view")
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

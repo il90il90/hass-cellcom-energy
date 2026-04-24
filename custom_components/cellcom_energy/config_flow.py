@@ -65,42 +65,41 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._ban: str = ""
         self._subscriber: str = ""
 
-    # ── Step 1: Phone number ──────────────────────────────────────────────────
+    # ── Step 1: Open browser → reCAPTCHA + phone number ─────────────────────
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Show the phone number form and send the OTP SMS."""
-        errors: dict[str, str] = {}
+        """Redirect the user's browser to the HA-hosted reCAPTCHA login page.
 
-        if user_input is not None:
-            phone = user_input[CONF_PHONE].strip().replace("-", "").replace(" ", "")
-            self._phone = phone
+        First invocation (user_input=None): launches the external step, opening
+        the browser to /api/cellcom_energy/auth.
 
-            client = CellcomEnergyClient(
-                async_get_clientsession(self.hass),
-                device_id=self._device_id,
-                session_id=self._session_id,
+        Second invocation (user_input={"phone": ..., "guid": ...}): called by
+        auth_view after LoginStep1 succeeds; stores state and moves to the OTP step.
+        """
+        if user_input is not None and "guid" in user_input:
+            # Second call: auth_view has completed LoginStep1 successfully.
+            self._phone = user_input["phone"]
+            self._guid = user_input["guid"]
+            _LOGGER.debug(
+                "auth_view callback: phone=%s guid=%s…", self._phone, self._guid[:8]
             )
+            return self.async_external_step_done(next_step_id="otp")
 
-            try:
-                self._guid = await client.async_login_step1(phone)
-                return await self.async_step_otp()
-            except CellcomConnectionError as err:
-                _LOGGER.warning("LoginStep1 connection error: %s", err)
-                errors["base"] = "cannot_connect"
-            except CellcomAuthError as err:
-                _LOGGER.warning("LoginStep1 auth error: %s", err)
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error in LoginStep1")
-                errors["base"] = "unknown"
+        # First call: send user to the browser login page.
+        ha_url = (
+            self.hass.config.external_url
+            or self.hass.config.internal_url
+            or "http://homeassistant.local:8123"
+        ).rstrip("/")
 
-        return self.async_show_form(
+        auth_url = f"{ha_url}/api/cellcom_energy/auth?flow_id={self.flow_id}"
+        _LOGGER.debug("Launching external auth step: %s", auth_url)
+
+        return self.async_external_step(
             step_id="user",
-            data_schema=STEP_PHONE_SCHEMA,
-            errors=errors,
-            description_placeholders={},
+            url=auth_url,
         )
 
     # ── Step 2: OTP code ──────────────────────────────────────────────────────

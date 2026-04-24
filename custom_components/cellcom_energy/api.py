@@ -55,6 +55,11 @@ def _generate_device_id() -> str:
     return f"{raw[:6]}-{raw[6:9]}-{raw[9:12]}-{raw[12:16]}-{raw[16:28]}"
 
 
+def _generate_tracking_id() -> str:
+    """Generate a x-cell-tracking-id value (uppercase hex, 32 chars)."""
+    return uuid.uuid4().hex.upper().replace("-", "")
+
+
 def _generate_session_id() -> str:
     """Generate a SessionID UUID."""
     raw = uuid.uuid4().hex
@@ -89,11 +94,17 @@ class CellcomEnergyClient:
         session: aiohttp.ClientSession,
         device_id: str | None = None,
         session_id: str | None = None,
+        recaptcha_token: str | None = None,
     ) -> None:
-        """Initialise the client with an aiohttp session and optional persistent IDs."""
+        """Initialise the client with an aiohttp session and optional persistent IDs.
+
+        recaptcha_token: a real browser-obtained reCAPTCHA v3 token for LoginStep1.
+        When provided it is sent in the x-cell-recaptcha-token header.
+        """
         self._session = session
         self._device_id = device_id or _generate_device_id()
         self._session_id = session_id or _generate_session_id()
+        self._recaptcha_token: str | None = recaptcha_token
 
     @property
     def device_id(self) -> str:
@@ -127,37 +138,39 @@ class CellcomEnergyClient:
         }
 
     async def async_prime_session(self) -> None:
-        """Make an initial GET to cellcom.co.il to acquire Imperva WAF cookies.
+        """Prime both domains with Imperva WAF cookies.
 
-        Without these cookies, subsequent API calls are blocked with HTTP 403.
-        The aiohttp session stores the cookies automatically for reuse.
+        The main site (cellcom.co.il) and the API subdomain (digital-api.cellcom.co.il)
+        each have their own Imperva site IDs and cookie sets.  Without these cookies
+        the PUT /api/otp/LoginStep1 request returns HTTP 403.
         """
-        try:
-            async with self._session.get(
-                "https://cellcom.co.il/",
-                headers={
-                    "Accept": (
-                        "text/html,application/xhtml+xml,application/xml;"
-                        "q=0.9,image/avif,image/webp,*/*;q=0.8"
-                    ),
-                    "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/147.0.0.0 Safari/537.36"
-                    ),
-                },
-                timeout=aiohttp.ClientTimeout(total=15),
-                allow_redirects=True,
-            ) as resp:
-                _LOGGER.debug(
-                    "Session primed: GET cellcom.co.il → %s, cookies: %s",
-                    resp.status,
-                    list(self._session.cookie_jar.__iter__()),
-                )
-        except Exception as err:
-            # Non-fatal: continue even if the prime request fails.
-            _LOGGER.warning("Session prime request failed (will try API anyway): %s", err)
+        browser_headers = {
+            "Accept": (
+                "text/html,application/xhtml+xml,application/xml;"
+                "q=0.9,image/avif,image/webp,*/*;q=0.8"
+            ),
+            "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/147.0.0.0 Safari/537.36"
+            ),
+        }
+        for url in (
+            "https://cellcom.co.il/",
+            "https://digital-api.cellcom.co.il/",
+            "https://cellcom.co.il/my-cellcom/",
+        ):
+            try:
+                async with self._session.get(
+                    url,
+                    headers=browser_headers,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                    allow_redirects=True,
+                ) as resp:
+                    _LOGGER.debug("Session prime %s → HTTP %s", url, resp.status)
+            except Exception as err:
+                _LOGGER.warning("Session prime failed for %s: %s (continuing)", url, err)
 
     async def _request(
         self,
@@ -166,12 +179,15 @@ class CellcomEnergyClient:
         *,
         json: dict[str, Any] | None = None,
         bearer: str | None = None,
+        extra_headers: dict[str, str] | None = None,
         retry: int = 0,
     ) -> dict[str, Any]:
         """Send a single API request and return the parsed JSON body."""
         headers = self._base_headers()
         if bearer:
             headers["Authorization"] = f"Bearer {bearer}"
+        if extra_headers:
+            headers.update(extra_headers)
 
         url = f"{BASE_URL}{endpoint}"
 
@@ -205,7 +221,8 @@ class CellcomEnergyClient:
                     )
                     await asyncio.sleep(wait)
                     return await self._request(
-                        method, endpoint, json=json, bearer=bearer, retry=retry + 1
+                        method, endpoint, json=json, bearer=bearer,
+                        extra_headers=extra_headers, retry=retry + 1
                     )
 
                 resp.raise_for_status()
@@ -230,9 +247,27 @@ class CellcomEnergyClient:
     async def async_login_step1(self, phone: str) -> str:
         """Start OTP login. Returns the GUID needed for step 2.
 
-        Primes the session with WAF cookies before sending the login request.
+        Requires a real browser-obtained reCAPTCHA v3 token (set via constructor).
+        The session is primed with WAF cookies automatically before the call.
         """
         await self.async_prime_session()
+
+        extra_headers: dict[str, str] = {
+            "sec-ch-ua": (
+                '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"'
+            ),
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "x-cell-tracking-id": _generate_tracking_id(),
+        }
+        if self._recaptcha_token:
+            extra_headers["x-cell-recaptcha-token"] = self._recaptcha_token
+            _LOGGER.debug("LoginStep1: sending reCAPTCHA token")
+        else:
+            _LOGGER.warning(
+                "LoginStep1: no reCAPTCHA token provided — server may reject with ReturnCode=99"
+            )
+
         body = await self._request(
             "PUT",
             ENDPOINT_LOGIN_STEP1,
@@ -242,9 +277,18 @@ class CellcomEnergyClient:
                 "ProcessType": "",
                 "OtpOrigin": OTP_ORIGIN,
             },
+            extra_headers=extra_headers,
         )
-        guid = body.get("Guid")
+        # The API returns the GUID in Body.message (confirmed via HAR analysis).
+        # Fallback checks cover any undocumented response variants.
+        guid = (
+            body.get("message")
+            or body.get("Guid")
+            or body.get("guid")
+            or body.get("GUID")
+        )
         if not guid:
+            _LOGGER.error("LoginStep1 unexpected body: %s", body)
             raise CellcomAuthError("LoginStep1 did not return a Guid")
         _LOGGER.debug("LoginStep1 succeeded, Guid received")
         return guid
