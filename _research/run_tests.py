@@ -218,9 +218,9 @@ def test_config_flow() -> None:
     check("accessToken extracted", "accessToken" in src)
     # Must use refreshToken key
     check("refreshToken extracted", "refreshToken" in src)
-    # Both snippets in description_placeholders
-    check("snippet in description_placeholders", '"snippet"' in src)
-    check("extract_snippet in description_placeholders", '"extract_snippet"' in src)
+    # Snippets are NOT in description_placeholders (avoids ICU MALFORMED_ARGUMENT)
+    check("snippet NOT in description_placeholders (ICU safe)", 'description_placeholders={"snippet"' not in src)
+    check("no {} curly braces in error forms (ICU safe)", 'description_placeholders={"snippet"' not in src)
     # Reauth flow present
     check("async_step_reauth defined", "async_step_reauth" in src)
 

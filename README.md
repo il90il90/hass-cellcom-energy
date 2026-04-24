@@ -89,22 +89,48 @@ Click the button below, or follow the manual steps:
 
 ## ⚙️ Configuration
 
-After installation and restarting HA:
+### Step 1 — Log in to Cellcom in your browser
+
+Open the Cellcom login page and sign in with your phone number and SMS code:
+
+👉 **[https://cellcom.co.il/Authentication/otp-login-page/](https://cellcom.co.il/Authentication/otp-login-page/)**
+
+---
+
+### Step 2 — Copy your token from the browser console
+
+After logging in, open the **browser console** (press **F12** → click the **Console** tab).
+
+Run one of these commands. **Try the first one first** — it copies the access token:
+
+```javascript
+copy(localStorage.getItem('auth_token').replace(/"/g,''))
+```
+
+If that does not work, try the refresh token:
+
+```javascript
+copy(localStorage.getItem('refresh_token').replace(/"/g,''))
+```
+
+You will see `undefined` printed in the console — that is normal.
+Your token is now in the clipboard.
+
+> **Tip:** The command removes any surrounding quote characters automatically.
+
+---
+
+### Step 3 — Paste the token into Home Assistant
 
 1. Go to **Settings → Devices & Services**
 2. Click **+ Add Integration**
 3. Search for **"Cellcom Energy"**
-4. Complete the 3-step login wizard:
+4. In the dialog that opens, **paste** (Ctrl+V) the token into the field
+5. Click **Submit**
 
-| Step | What you enter | What happens |
-|------|---------------|--------------|
-| 1 | Your Cellcom phone number (e.g. `0502959996`) | Cellcom sends you an SMS |
-| 2 | The 6-digit OTP code from the SMS | HA verifies the code |
-| 3 | Your Israeli ID number (תעודת זהות) | HA completes authentication |
+The integration validates the token, finds your energy account, and creates all sensors automatically.
 
-5. Click **Finish** — the integration creates a device with all sensors automatically.
-
-> Your credentials are stored in HA's encrypted storage and are never logged.
+> Your token is stored in HA's encrypted storage and is never logged in plain text.
 
 ---
 

@@ -3,18 +3,18 @@
     "step": {
       "user": {
         "title": "חיבור חשבון Cellcom Energy",
-        "description": "## אפשרות א' — עדיין לא מחובר\n\n1. פתח: [cellcom.co.il/Authentication/otp-login-page/](https://cellcom.co.il/Authentication/otp-login-page/)\n2. לחץ **F12 → Console** והדבק:\n```\n{snippet}\n```\n3. תראה: *Interceptor active (XHR+fetch)*\n4. **התחבר רגיל** — לאחר הכניסה יופיע חלון עם ה-tokens. העתק והדבק למטה.\n\n---\n\n## אפשרות ב' — כבר מחובר לסלקום\n\n1. בכל עמוד סלקום לחץ **F12 → Console** והדבק:\n```\n{extract_snippet}\n```\n2. יופיע חלון עם ה-tokens. העתק והדבק למטה.",
+        "description": "## איך לקבל את הטוקן שלך\n\n**שלב 1** — התחבר לסלקום בדפדפן:\n[פתח דף הכניסה של סלקום](https://cellcom.co.il/Authentication/otp-login-page/)\n\n**שלב 2** — לאחר הכניסה, פתח את קונסול הדפדפן (**F12 → Console**) והרץ אחת מהפקודות הבאות.\n\n**נסה זאת קודם (access token):**\n```\ncopy(localStorage.getItem('auth_token').replace(/\"/g,''))\n```\n**או זאת (refresh token):**\n```\ncopy(localStorage.getItem('refresh_token').replace(/\"/g,''))\n```\n\n**שלב 3** — תופיע הודעה *\"token copied\"* — הטוקן הועתק ל-clipboard.\n\n**שלב 4** — הדבק את הטוקן בשדה למטה ולחץ **שלח**.",
         "data": {
-          "tokens_json": "הדבק את ה-JSON של ה-tokens כאן"
+          "tokens_json": "הדבק את הטוקן כאן"
         },
         "data_description": {
-          "tokens_json": "הדבק את הטקסט שהופיע בחלון הדפדפן, או JWT ישיר שמתחיל ב-eyJ"
+          "tokens_json": "הדבק את ה-JWT שהועתק מקונסול הדפדפן (מתחיל ב-eyJ)"
         }
       }
     },
     "error": {
       "cannot_connect": "לא ניתן להתחבר לשרתי סלקום. בדוק את חיבור האינטרנט שלך.",
-      "invalid_tokens_json": "הטקסט שהודבק אינו תקין. ודא שהעתקת את הטקסט המלא מהחלון (צריך להתחיל ב-{\"accessToken\":...).",
+      "invalid_tokens_json": "הטוקן שהודבק אינו תקין. ודא שהוא מתחיל ב-eyJ ושהוא מלא.",
       "no_energy_account": "לא נמצא חשבון Cellcom Energy (חשמל). ודא שיש לך חוזה חשמל פעיל אצל סלקום.",
       "unknown": "שגיאה בלתי צפויה. ראה את לוג ה-HA לפרטים."
     },

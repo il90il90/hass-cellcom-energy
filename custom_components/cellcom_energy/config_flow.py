@@ -142,10 +142,6 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=STEP_TOKEN_SCHEMA,
             errors=errors,
-            description_placeholders={
-                "snippet": _INTERCEPT_SNIPPET,
-                "extract_snippet": _EXTRACT_SNIPPET,
-            },
         )
 
     # ── Validate tokens and create entry ─────────────────────────────────────
@@ -164,7 +160,6 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="user",
                 data_schema=STEP_TOKEN_SCHEMA,
                 errors={"base": "cannot_connect"},
-                description_placeholders={"snippet": _INTERCEPT_SNIPPET},
             )
         except Exception:
             _LOGGER.exception("CustomerInit failed during token validation")
@@ -172,7 +167,6 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="user",
                 data_schema=STEP_TOKEN_SCHEMA,
                 errors={"base": "invalid_tokens_json"},
-                description_placeholders={"snippet": _INTERCEPT_SNIPPET},
             )
 
         ban, subscriber, phone = _extract_energy_info(init_data)
@@ -181,7 +175,6 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="user",
                 data_schema=STEP_TOKEN_SCHEMA,
                 errors={"base": "no_energy_account"},
-                description_placeholders={"snippet": _INTERCEPT_SNIPPET},
             )
 
         await self.async_set_unique_id(f"cellcom_energy_{ban}")

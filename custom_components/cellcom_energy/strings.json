@@ -3,18 +3,18 @@
     "step": {
       "user": {
         "title": "Cellcom Energy — Connect Account",
-        "description": "## Option A — Not logged in yet\n\n1. Open: [cellcom.co.il/Authentication/otp-login-page/](https://cellcom.co.il/Authentication/otp-login-page/)\n2. Press **F12 → Console** and paste:\n```\n{snippet}\n```\n3. You will see: *Interceptor active (XHR+fetch)*\n4. **Log in normally** — after login a dialog appears with your tokens. Copy it and paste below.\n\n---\n\n## Option B — Already logged in on Cellcom\n\n1. On any Cellcom page press **F12 → Console** and paste:\n```\n{extract_snippet}\n```\n2. A dialog will appear with your tokens. Copy it and paste below.",
+        "description": "## How to get your Cellcom token\n\n**Step 1** — Log in to Cellcom in your browser:\n[Open Cellcom login page](https://cellcom.co.il/Authentication/otp-login-page/)\n\n**Step 2** — After logging in, open the browser console (**F12 → Console** tab) and run one of the commands below.\n\n**Try this first (access token):**\n```\ncopy(localStorage.getItem('auth_token').replace(/\"/g,''))\n```\n**Or this (refresh token):**\n```\ncopy(localStorage.getItem('refresh_token').replace(/\"/g,''))\n```\n\n**Step 3** — A notification *\"token copied\"* will appear (or use Ctrl+C on the selected text).\n\n**Step 4** — Paste the token in the field below and click **Submit**.",
         "data": {
-          "tokens_json": "Paste token JSON here"
+          "tokens_json": "Paste token here"
         },
         "data_description": {
-          "tokens_json": "Paste the text that appeared in the browser dialog, or a plain JWT token starting with eyJ"
+          "tokens_json": "Paste the JWT token copied from the browser console (starts with eyJ)"
         }
       }
     },
     "error": {
       "cannot_connect": "Unable to reach Cellcom servers. Check your internet connection.",
-      "invalid_tokens_json": "The pasted text is not valid. Make sure you copied the complete text from the dialog (it should start with {\"accessToken\":...).",
+      "invalid_tokens_json": "The pasted token is not valid. Make sure it starts with eyJ and is complete.",
       "no_energy_account": "No Cellcom Energy (electricity) account was found. Make sure you have an active electricity contract with Cellcom.",
       "unknown": "Unexpected error. See the HA log for details."
     },
