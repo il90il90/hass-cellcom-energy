@@ -8,7 +8,7 @@
           "phone": "Phone number"
         },
         "data_description": {
-          "phone": "The mobile number registered to your Cellcom account (e.g. 0502959996)"
+          "phone": "The mobile number registered to your Cellcom account (e.g. 050-1234567)"
         }
       },
       "phone": {
@@ -18,7 +18,7 @@
           "phone": "Phone number"
         },
         "data_description": {
-          "phone": "The mobile number registered to your Cellcom account (e.g. 0502959996)"
+          "phone": "The mobile number registered to your Cellcom account (e.g. 050-1234567)"
         }
       },
       "otp": {
