@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "חיבור חשבון Cellcom Energy",
-        "description": "## איך לחבר את חשבון Cellcom Energy שלך\n\n**שלב 1 — פתח את דף הכניסה של סלקום בדפדפן:**\n[לחץ כאן לפתיחת דף הכניסה של סלקום](https://cellcom.co.il/Authentication/otp-login-page/)\n\n**שלב 2 — פתח את קונסול הדפדפן (F12 → Console) והדבק:**\n```\n{snippet}\n```\nתראה את ההודעה: *[Cellcom Energy] Interceptor active — now log in normally.*\n\n**שלב 3 — התחבר רגיל** עם מספר הטלפון וקוד ה-SMS.\n\n**שלב 4 — לאחר הכניסה המוצלחת** יופיע חלון עם ה-tokens שלך. העתק את כל הטקסט והדבק אותו למטה.",
+        "description": "## אפשרות א' — עדיין לא מחובר\n\n1. פתח: [cellcom.co.il/Authentication/otp-login-page/](https://cellcom.co.il/Authentication/otp-login-page/)\n2. לחץ **F12 → Console** והדבק:\n```\n{snippet}\n```\n3. תראה: *Interceptor active (XHR+fetch)*\n4. **התחבר רגיל** — לאחר הכניסה יופיע חלון עם ה-tokens. העתק והדבק למטה.\n\n---\n\n## אפשרות ב' — כבר מחובר לסלקום\n\n1. בכל עמוד סלקום לחץ **F12 → Console** והדבק:\n```\n{extract_snippet}\n```\n2. יופיע חלון עם ה-tokens. העתק והדבק למטה.",
         "data": {
           "tokens_json": "הדבק את ה-JSON של ה-tokens כאן"
         },
         "data_description": {
-          "tokens_json": "הטקסט שהופיע בחלון לאחר הכניסה (מתחיל ב-{\"accessToken\":...})"
+          "tokens_json": "הטקסט שהופיע בחלון (מתחיל ב-{\"accessToken\":...})"
         }
       }
     },
     "error": {
       "cannot_connect": "לא ניתן להתחבר לשרתי סלקום. בדוק את חיבור האינטרנט שלך.",
       "invalid_tokens_json": "הטקסט שהודבק אינו תקין. ודא שהעתקת את הטקסט המלא מהחלון (צריך להתחיל ב-{\"accessToken\":...).",
-      "no_energy_account": "לא נמצא חשבון Cellcom Energy (חשמל) עבור כניסה זו. ודא שיש לך חשבון חשמל פעיל אצל סלקום.",
+      "no_energy_account": "לא נמצא חשבון Cellcom Energy (חשמל). ודא שיש לך חוזה חשמל פעיל אצל סלקום.",
       "unknown": "שגיאה בלתי צפויה. ראה את לוג ה-HA לפרטים."
     },
     "abort": {

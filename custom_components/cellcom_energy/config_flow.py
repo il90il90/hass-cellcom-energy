@@ -28,27 +28,56 @@ _LOGGER = logging.getLogger(__name__)
 # Cellcom login page URL — the REAL page where reCAPTCHA is loaded correctly.
 CELLCOM_LOGIN_URL = "https://cellcom.co.il/Authentication/otp-login-page/"
 
-# JavaScript snippet injected into the config flow description.
-# The user pastes this into the browser console BEFORE logging in on cellcom.co.il.
-# It monkey-patches window.fetch so that when LoginStep3 is called (the last login step)
-# the response is intercepted, the tokens are extracted, and shown in a prompt().
+# ── Snippet A: paste BEFORE logging in ───────────────────────────────────────
+# Intercepts BOTH fetch AND XMLHttpRequest (axios uses XHR in browsers).
+# When LoginStep3 response arrives the tokens are shown in a prompt().
 _INTERCEPT_SNIPPET = (
     "(function(){"
+    # Patch fetch
     "var _f=window.fetch;"
     "window.fetch=async function(){var r=await _f.apply(this,arguments);"
     "if((arguments[0]||'').includes('LoginStep3')){"
-    "var c=r.clone();"
-    "c.json().then(function(d){"
+    "r.clone().json().then(function(d){"
     "var ex=(d.Body||{}).extra||{};"
-    "if(ex.accessToken){"
-    "prompt('Copy ALL of this and paste in Home Assistant:',"
+    "if(ex.accessToken)prompt('Copy ALL and paste in Home Assistant:',"
     "JSON.stringify({accessToken:ex.accessToken,refreshToken:ex.refreshToken}));"
+    "});}"
+    "return r;};"
+    # Patch XMLHttpRequest (axios default transport in browsers)
+    "var _op=XMLHttpRequest.prototype.open,_sn=XMLHttpRequest.prototype.send;"
+    "XMLHttpRequest.prototype.open=function(m,u){"
+    "this._cUrl=u||'';return _op.apply(this,arguments);};"
+    "XMLHttpRequest.prototype.send=function(){"
+    "if(this._cUrl.includes('LoginStep3')){"
+    "this.addEventListener('load',function(){"
+    "try{var d=JSON.parse(this.responseText);"
+    "var ex=(d.Body||{}).extra||{};"
+    "if(ex.accessToken)prompt('Copy ALL and paste in Home Assistant:',"
+    "JSON.stringify({accessToken:ex.accessToken,refreshToken:ex.refreshToken}));}"
+    "catch(e){}});}"
+    "return _sn.apply(this,arguments);};"
+    "console.log('%c[Cellcom Energy] Interceptor active (XHR+fetch) — now log in normally.',"
+    "'color:#5c8ee6;font-weight:bold;font-size:14px');"
+    "})()"
+)
+
+# ── Snippet B: paste when ALREADY logged in ───────────────────────────────────
+# Scans localStorage and sessionStorage for stored JWT tokens.
+_EXTRACT_SNIPPET = (
+    "(function(){"
+    "var r={};"
+    "[localStorage,sessionStorage].forEach(function(s){"
+    "for(var i=0;i<s.length;i++){"
+    "var k=s.key(i),raw=s.getItem(k)||'';"
+    "if(!raw.includes('eyJ'))continue;"
+    "try{var o=JSON.parse(raw);"
+    "if(o&&o.accessToken&&!r.accessToken)"
+    "{r={accessToken:o.accessToken,refreshToken:o.refreshToken||''};}"
+    "}catch(e){}"
     "}"
     "});"
-    "}"
-    "return r;};"
-    "console.log('%c[Cellcom Energy] Interceptor active — now log in normally.',"
-    "'color:#5c8ee6;font-weight:bold;font-size:14px');"
+    "if(r.accessToken)prompt('Copy ALL and paste in Home Assistant:',JSON.stringify(r));"
+    "else alert('Tokens not found in storage.\\nPlease log out from Cellcom and repeat from HA using Snippet A.');"
     "})()"
 )
 
@@ -100,7 +129,10 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=STEP_TOKEN_SCHEMA,
             errors=errors,
-            description_placeholders={"snippet": _INTERCEPT_SNIPPET},
+            description_placeholders={
+                "snippet": _INTERCEPT_SNIPPET,
+                "extract_snippet": _EXTRACT_SNIPPET,
+            },
         )
 
     # ── Validate tokens and create entry ─────────────────────────────────────

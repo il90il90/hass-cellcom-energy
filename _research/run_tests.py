@@ -201,12 +201,13 @@ def test_config_flow() -> None:
     print("\n[5] Config flow: fetch-interceptor token-paste approach")
     src = (INTEGRATION_DIR / "config_flow.py").read_text(encoding="utf-8")
 
-    # The interceptor snippet is defined at module level
+    # Both snippets must be defined at module level
     check("_INTERCEPT_SNIPPET defined", "_INTERCEPT_SNIPPET" in src)
-    # The snippet must intercept LoginStep3 (the final login step)
+    check("_EXTRACT_SNIPPET defined", "_EXTRACT_SNIPPET" in src)
+    # Interceptor must patch BOTH fetch AND XMLHttpRequest (axios uses XHR)
     check("LoginStep3 intercepted", "LoginStep3" in src)
-    # The snippet must patch window.fetch
     check("window.fetch patched", "window.fetch" in src)
+    check("XMLHttpRequest patched (XHR/axios)", "XMLHttpRequest.prototype.open" in src)
     # The snippet must call prompt() to show the user their tokens
     check("prompt() shows tokens to user", "prompt(" in src)
     # Must accept tokens_json from the user
@@ -217,8 +218,9 @@ def test_config_flow() -> None:
     check("accessToken extracted", "accessToken" in src)
     # Must use refreshToken key
     check("refreshToken extracted", "refreshToken" in src)
-    # snippet in description_placeholders
+    # Both snippets in description_placeholders
     check("snippet in description_placeholders", '"snippet"' in src)
+    check("extract_snippet in description_placeholders", '"extract_snippet"' in src)
     # Reauth flow present
     check("async_step_reauth defined", "async_step_reauth" in src)
 

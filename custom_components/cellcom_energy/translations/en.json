@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "Cellcom Energy — Connect Account",
-        "description": "## How to connect your Cellcom Energy account\n\n**Step 1 — Open Cellcom login page in your browser:**\n[Click here to open Cellcom login](https://cellcom.co.il/Authentication/otp-login-page/)\n\n**Step 2 — Open the browser console (F12 → Console tab) and paste:**\n```\n{snippet}\n```\nYou will see: *[Cellcom Energy] Interceptor active — now log in normally.*\n\n**Step 3 — Log in normally** with your phone number and SMS code.\n\n**Step 4 — After login succeeds**, a dialog will appear with your tokens. Copy the entire text and paste it below.",
+        "description": "## Option A — Not logged in yet\n\n1. Open: [cellcom.co.il/Authentication/otp-login-page/](https://cellcom.co.il/Authentication/otp-login-page/)\n2. Press **F12 → Console** and paste:\n```\n{snippet}\n```\n3. You will see: *Interceptor active (XHR+fetch)*\n4. **Log in normally** — after login a dialog appears with your tokens. Copy it and paste below.\n\n---\n\n## Option B — Already logged in on Cellcom\n\n1. On any Cellcom page press **F12 → Console** and paste:\n```\n{extract_snippet}\n```\n2. A dialog will appear with your tokens. Copy it and paste below.",
         "data": {
           "tokens_json": "Paste token JSON here"
         },
         "data_description": {
-          "tokens_json": "The JSON text that appeared in the dialog after logging in (starts with {\"accessToken\":...})"
+          "tokens_json": "The JSON text from the dialog (starts with {\"accessToken\":...})"
         }
       }
     },
     "error": {
       "cannot_connect": "Unable to reach Cellcom servers. Check your internet connection.",
-      "invalid_tokens_json": "The pasted text is not valid. Make sure you copied the full text from the dialog (it should start with {\"accessToken\":...).",
-      "no_energy_account": "No Cellcom Energy (electricity) account was found for this login. Make sure you have an active electricity account with Cellcom.",
+      "invalid_tokens_json": "The pasted text is not valid. Make sure you copied the complete text from the dialog (it should start with {\"accessToken\":...).",
+      "no_energy_account": "No Cellcom Energy (electricity) account was found. Make sure you have an active electricity contract with Cellcom.",
       "unknown": "Unexpected error. See the HA log for details."
     },
     "abort": {
