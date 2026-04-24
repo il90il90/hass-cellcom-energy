@@ -62,22 +62,27 @@ _INTERCEPT_SNIPPET = (
 )
 
 # ── Snippet B: paste when ALREADY logged in ───────────────────────────────────
-# Scans localStorage and sessionStorage for stored JWT tokens.
+# Checks direct keys first (accessToken, auth_token), then scans all storage
+# entries for any JWT-containing JSON object.
 _EXTRACT_SNIPPET = (
     "(function(){"
-    "var r={};"
+    # Try well-known direct keys first
+    "var at=localStorage.getItem('accessToken')||localStorage.getItem('auth_token')||'';"
+    "var rt=localStorage.getItem('refreshToken')||localStorage.getItem('refresh_token')||'';"
+    # If not found as direct string, scan all storage for JSON objects
+    "if(!at.includes('eyJ')){"
     "[localStorage,sessionStorage].forEach(function(s){"
     "for(var i=0;i<s.length;i++){"
-    "var k=s.key(i),raw=s.getItem(k)||'';"
+    "var raw=s.getItem(s.key(i))||'';"
     "if(!raw.includes('eyJ'))continue;"
     "try{var o=JSON.parse(raw);"
-    "if(o&&o.accessToken&&!r.accessToken)"
-    "{r={accessToken:o.accessToken,refreshToken:o.refreshToken||''};}"
+    "if(o&&o.accessToken){at=o.accessToken;rt=o.refreshToken||rt;}"
     "}catch(e){}"
     "}"
-    "});"
-    "if(r.accessToken)prompt('Copy ALL and paste in Home Assistant:',JSON.stringify(r));"
-    "else alert('Tokens not found in storage.\\nPlease log out from Cellcom and repeat from HA using Snippet A.');"
+    "});}"
+    "if(at&&at.includes('eyJ')){"
+    "prompt('Copy ALL and paste in Home Assistant:',JSON.stringify({accessToken:at,refreshToken:rt}));}"
+    "else alert('Tokens not found.\\nKeys: '+Object.keys(localStorage).join(', '));"
     "})()"
 )
 
