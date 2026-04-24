@@ -1,7 +1,7 @@
 # ⚡ Cellcom Energy — Home Assistant Integration
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?logo=home-assistant-community-store)](https://hacs.xyz)
-[![GitHub Release](https://img.shields.io/github/v/release/your-user/hass-cellcom-energy?label=release)](https://github.com/your-user/hass-cellcom-energy/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/il90il90/hass-cellcom-energy?label=release)](https://github.com/il90il90/hass-cellcom-energy/releases)
 [![HA Minimum Version](https://img.shields.io/badge/Home%20Assistant-%3E%3D2024.1-blue?logo=home-assistant)](https://www.home-assistant.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -53,7 +53,7 @@ cost and billing information.
 
 Click the button below, or follow the manual steps:
 
-[![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=your-user&repository=hass-cellcom-energy&category=integration)
+[![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=il90il90&repository=hass-cellcom-energy&category=integration)
 
 **Manual steps:**
 1. In Home Assistant, go to **HACS → Integrations**
@@ -61,7 +61,7 @@ Click the button below, or follow the manual steps:
 3. Select **Custom repositories**
 4. In the **Repository** field, enter:
    ```
-   https://github.com/your-user/hass-cellcom-energy
+   https://github.com/il90il90/hass-cellcom-energy
    ```
 5. Set **Category** to `Integration`
 6. Click **ADD**
@@ -76,7 +76,7 @@ Click the button below, or follow the manual steps:
 
 ### Method 2 — Manual Installation
 
-1. Download the [latest release](https://github.com/your-user/hass-cellcom-energy/releases/latest)
+1. Download the [latest release](https://github.com/il90il90/hass-cellcom-energy/releases/latest)
 2. Extract the archive
 3. Copy the `custom_components/cellcom_energy/` folder into your HA
    configuration directory:
@@ -244,7 +244,7 @@ until a refresh endpoint is discovered.
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Report issues at:
-👉 [github.com/your-user/hass-cellcom-energy/issues](https://github.com/your-user/hass-cellcom-energy/issues)
+👉 [github.com/il90il90/hass-cellcom-energy/issues](https://github.com/il90il90/hass-cellcom-energy/issues)
 
 ---
 
