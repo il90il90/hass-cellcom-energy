@@ -198,24 +198,27 @@ def test_tracking_id() -> None:
 # ─── TEST 5: Config flow guards ────────────────────────────────────────────────
 
 def test_config_flow() -> None:
-    print("\n[5] Config flow: view registration + external step")
+    print("\n[5] Config flow: console snippet approach")
     src = (INTEGRATION_DIR / "config_flow.py").read_text(encoding="utf-8")
-    check("imports CellcomAuthView", "from .auth_view import CellcomAuthView" in src)
-    check("_ensure_auth_view_registered defined", "_ensure_auth_view_registered" in src)
-    check("called in async_step_user", src.count("_ensure_auth_view_registered(") >= 1)
-    check("async_external_step used", "async_external_step(" in src)
-    check("async_external_step_done used", "async_external_step_done(" in src)
-    check('handles guid callback: "guid" in user_input', '"guid" in user_input' in src)
-    # LoginStep1 should live in auth_view (main flow) and reauth steps only,
-    # NOT inside async_step_user itself.
+    # New flow: console snippet shown in HA UI, user pastes GUID back
+    check("async_step_browser_login defined", "async_step_browser_login" in src)
+    check("_make_console_snippet defined", "_make_console_snippet" in src)
+    check("snippet in description_placeholders", '"snippet"' in src)
+    check('GUID field in browser_login step', 'vol.Required("guid")' in src)
+    check("reCAPTCHA site key constant", "_RECAPTCHA_SITE_KEY" in src)
+    check("reCAPTCHA action constant", "_RECAPTCHA_ACTION" in src)
+    check("grecaptcha.execute in snippet builder", "grecaptcha.execute" in src)
+    check("LoginStep1 endpoint in snippet", "LoginStep1" in src)
+    check("prompt() shows GUID to user", "prompt(" in src)
+
+    # async_step_user should only ask for phone (no direct API calls)
     import re as _re
     step_user_match = _re.search(
-        r"async def async_step_user\b.*?(?=\n    async def )", src, _re.DOTALL
+        r"async def async_step_user\b.*?(?=\n    async def |\Z)", src, _re.DOTALL
     )
     step_user_body = step_user_match.group(0) if step_user_match else ""
-    check("async_step_user does NOT call LoginStep1 directly",
-          "async_login_step1" not in step_user_body,
-          "(correctly delegated to auth_view)")
+    check("async_step_user does NOT call LoginStep1",
+          "async_login_step1" not in step_user_body)
 
 
 # ─── TEST 6: manifest.json ─────────────────────────────────────────────────────

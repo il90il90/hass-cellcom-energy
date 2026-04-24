@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 import voluptuous as vol
@@ -12,17 +13,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import CellcomEnergyClient, _generate_device_id, _generate_session_id
-from .auth_view import CellcomAuthView
 from .const import (
     CONF_ID_NUMBER,
     CONF_PHONE,
-    DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
 from .exceptions import (
-    CellcomAuthError,
     CellcomConnectionError,
     CellcomIDError,
     CellcomOTPError,
@@ -31,40 +29,56 @@ from .models import Tokens
 
 _LOGGER = logging.getLogger(__name__)
 
-# Tracks whether the auth HTTP view has been registered in this HA session.
-_AUTH_VIEW_REGISTERED = False
+# reCAPTCHA site key for cellcom.co.il (public, embedded in their JS bundle)
+_RECAPTCHA_SITE_KEY = "6Lfdn98UAAAAAP0Hryf898rV70y6TuwWgJEV7ytW"
+_RECAPTCHA_ACTION = "OtpVerifyPhonePage"
+_CLIENT_ID = "984193a2-8d29-11ea-bc55-0242ac130004"
+
+STEP_PHONE_SCHEMA = vol.Schema({vol.Required(CONF_PHONE): str})
+STEP_GUID_SCHEMA = vol.Schema({vol.Required("guid"): str})
+STEP_OTP_SCHEMA = vol.Schema({vol.Required("otp_code"): str})
+STEP_ID_SCHEMA = vol.Schema({vol.Required(CONF_ID_NUMBER): str})
 
 
-def _ensure_auth_view_registered(hass: HomeAssistant) -> None:
-    """Register the /api/cellcom_energy/auth HTTP view exactly once."""
-    global _AUTH_VIEW_REGISTERED
-    if not _AUTH_VIEW_REGISTERED:
-        hass.http.register_view(CellcomAuthView(hass))
-        _AUTH_VIEW_REGISTERED = True
-        _LOGGER.debug("Cellcom Energy: registered /api/cellcom_energy/auth")
+def _make_console_snippet(phone: str) -> str:
+    """Build the JavaScript one-liner to paste in the browser console on cellcom.co.il.
 
-# Extra keys stored temporarily during the flow (not persisted to config entry)
-_FLOW_GUID = "guid"
-_FLOW_PHONE = "phone"
-_FLOW_PRELIMINARY_JWT = "preliminary_jwt"
-_FLOW_DEVICE_ID = "device_id"
-_FLOW_SESSION_ID = "session_id"
+    When executed on cellcom.co.il the snippet:
+      1. Calls grecaptcha.execute() — works because the page already has the
+         reCAPTCHA script loaded for the correct domain.
+      2. POSTs to LoginStep1 with the valid token.
+      3. Shows the returned GUID in a prompt() so the user can copy it.
+    """
+    dev = _generate_device_id()
+    sess = _generate_session_id()
+    tid = uuid.uuid4().hex.upper()
 
-STEP_PHONE_SCHEMA = vol.Schema(
-    {vol.Required(CONF_PHONE): str}
-)
-
-STEP_OTP_SCHEMA = vol.Schema(
-    {vol.Required("otp_code"): str}
-)
-
-STEP_ID_SCHEMA = vol.Schema(
-    {vol.Required(CONF_ID_NUMBER): str}
-)
+    # Single-line JS (no line breaks — must be pasteable as one line in console)
+    return (
+        "(async()=>{"
+        f"const ph='{phone}';"
+        "try{"
+        "const t=await new Promise((res,rej)=>{"
+        "if(typeof grecaptcha==='undefined'){{rej(new Error('reCAPTCHA not loaded. Make sure you are on cellcom.co.il.'));return;}}"
+        f"grecaptcha.ready(()=>grecaptcha.execute('{_RECAPTCHA_SITE_KEY}',{{action:'{_RECAPTCHA_ACTION}'}}).then(res).catch(rej));"
+        "});"
+        "const r=await fetch('https://digital-api.cellcom.co.il/api/otp/LoginStep1',{method:'PUT',"
+        f"headers:{{'Content-Type':'application/json','ClientID':'{_CLIENT_ID}',"
+        f"'DeviceId':'{dev}','SessionID':'{sess}',"
+        "'Origin':'https://cellcom.co.il','Referer':'https://cellcom.co.il/',"
+        f"'x-cell-recaptcha-token':t,'x-cell-tracking-id':'{tid}'}},"
+        "body:JSON.stringify({Subscriber:ph,IsExtended:false,ProcessType:'',OtpOrigin:'main OTP'})});"
+        "const d=await r.json();"
+        "if(d.Header.ReturnCode!==0){alert('Error: '+d.Header.ReturnCodeMessage);return;}"
+        "const g=d.Body.message||d.Body.Guid;"
+        "prompt('Copy this GUID and paste it in Home Assistant:',g);"
+        "}catch(e){alert('Error: '+e.message);}"
+        "})()"
+    )
 
 
 class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle the Cellcom Energy config flow (3-step OTP login)."""
+    """Handle the Cellcom Energy config flow."""
 
     VERSION = 1
 
@@ -75,65 +89,79 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._preliminary_jwt: str = ""
         self._device_id: str = _generate_device_id()
         self._session_id: str = _generate_session_id()
-        self._ban: str = ""
-        self._subscriber: str = ""
 
-    # ── Step 1: Open browser → reCAPTCHA + phone number ─────────────────────
+    # ── Step 1: Phone number ──────────────────────────────────────────────────
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Redirect the user's browser to the HA-hosted reCAPTCHA login page.
+        """Ask for the phone number."""
+        errors: dict[str, str] = {}
 
-        First invocation (user_input=None): launches the external step, opening
-        the browser to /api/cellcom_energy/auth.
+        if user_input is not None:
+            phone = user_input[CONF_PHONE].strip().replace("-", "").replace(" ", "")
+            if not phone.startswith("0") or not phone.isdigit() or len(phone) != 10:
+                errors[CONF_PHONE] = "invalid_phone"
+            else:
+                self._phone = phone
+                return await self.async_step_browser_login()
 
-        Second invocation (user_input={"phone": ..., "guid": ...}): called by
-        auth_view after LoginStep1 succeeds; stores state and moves to the OTP step.
-        """
-        if user_input is not None and "guid" in user_input:
-            # Second call: auth_view has completed LoginStep1 successfully.
-            self._phone = user_input["phone"]
-            self._guid = user_input["guid"]
-            _LOGGER.debug(
-                "auth_view callback: phone=%s guid=%s…", self._phone, self._guid[:8]
-            )
-            return self.async_external_step_done(next_step_id="otp")
-
-        # First call: ensure the HTTP view is registered, then open the browser.
-        _ensure_auth_view_registered(self.hass)
-
-        ha_url = (
-            self.hass.config.external_url
-            or self.hass.config.internal_url
-            or "http://homeassistant.local:8123"
-        ).rstrip("/")
-
-        auth_url = f"{ha_url}/api/cellcom_energy/auth?flow_id={self.flow_id}"
-        _LOGGER.debug("Launching external auth step: %s", auth_url)
-
-        return self.async_external_step(
+        return self.async_show_form(
             step_id="user",
-            url=auth_url,
+            data_schema=STEP_PHONE_SCHEMA,
+            errors=errors,
+            description_placeholders={},
         )
 
-    # ── Step 2: OTP code ──────────────────────────────────────────────────────
+    # ── Step 2: Browser login instructions ───────────────────────────────────
+
+    async def async_step_browser_login(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Show instructions + console snippet → ask user to paste the GUID.
+
+        The snippet must run in the browser console on cellcom.co.il so that
+        reCAPTCHA executes on the correct domain.  After running the snippet the
+        user sees a prompt() dialog with the GUID; they paste it here.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            guid = user_input["guid"].strip()
+            if len(guid) < 8:
+                errors["guid"] = "invalid_guid"
+            else:
+                self._guid = guid
+                _LOGGER.debug("GUID accepted: %s…", guid[:8])
+                return await self.async_step_otp()
+
+        snippet = _make_console_snippet(self._phone)
+
+        return self.async_show_form(
+            step_id="browser_login",
+            data_schema=STEP_GUID_SCHEMA,
+            errors=errors,
+            description_placeholders={
+                "phone": self._phone,
+                "snippet": snippet,
+            },
+        )
+
+    # ── Step 3: OTP code ──────────────────────────────────────────────────────
 
     async def async_step_otp(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Show the OTP form and verify the SMS code."""
+        """Verify the OTP code sent via SMS."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             otp_code = user_input["otp_code"].strip()
-
             client = CellcomEnergyClient(
                 async_get_clientsession(self.hass),
                 device_id=self._device_id,
                 session_id=self._session_id,
             )
-
             try:
                 self._preliminary_jwt = await client.async_login_step2(
                     self._guid, otp_code, self._phone
@@ -154,45 +182,38 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"phone": self._phone},
         )
 
-    # ── Step 3: ID number ─────────────────────────────────────────────────────
+    # ── Step 4: ID number ─────────────────────────────────────────────────────
 
     async def async_step_id_number(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Show the ID number form and complete authentication."""
+        """Complete authentication with the ID number."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             id_number = user_input[CONF_ID_NUMBER].strip()
-
             client = CellcomEnergyClient(
                 async_get_clientsession(self.hass),
                 device_id=self._device_id,
                 session_id=self._session_id,
             )
-
             try:
                 tokens = await client.async_login_step3(
                     self._preliminary_jwt, id_number, self._phone
                 )
-
-                # Fetch customer init to find the Energy BAN and subscriber number
                 init_data = await client.async_get_customer_init(tokens.access_token)
                 ban, subscriber = _extract_energy_subscriber(init_data)
 
                 if not ban:
-                    errors["base"] = "unknown"
+                    errors["base"] = "no_energy_account"
                     return self.async_show_form(
                         step_id="id_number",
                         data_schema=STEP_ID_SCHEMA,
                         errors=errors,
                     )
 
-                # Prevent duplicate entries for the same Energy account
                 await self.async_set_unique_id(f"cellcom_energy_{ban}")
                 self._abort_if_unique_id_configured()
-
-                # Persist tokens to HA Storage
                 await _store_tokens(self.hass, tokens)
 
                 return self.async_create_entry(
@@ -206,7 +227,6 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "session_id": self._session_id,
                     },
                 )
-
             except CellcomIDError:
                 errors["base"] = "invalid_id"
             except CellcomConnectionError:
@@ -228,112 +248,20 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> config_entries.FlowResult:
-        """Handle re-authentication when the token has expired."""
+        """Handle re-authentication when tokens have expired."""
         self._phone = entry_data.get(CONF_PHONE, "")
         self._device_id = entry_data.get("device_id", _generate_device_id())
         self._session_id = _generate_session_id()
-        return await self.async_step_reauth_confirm()
-
-    async def async_step_reauth_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.FlowResult:
-        """Send a new OTP for re-authentication."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            client = CellcomEnergyClient(
-                async_get_clientsession(self.hass),
-                device_id=self._device_id,
-                session_id=self._session_id,
-            )
-            try:
-                self._guid = await client.async_login_step1(self._phone)
-                return await self.async_step_reauth_otp()
-            except Exception:
-                errors["base"] = "cannot_connect"
-
-        return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=vol.Schema({}),
-            errors=errors,
-            description_placeholders={"phone": self._phone},
-        )
-
-    async def async_step_reauth_otp(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.FlowResult:
-        """Verify OTP during reauth."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            client = CellcomEnergyClient(
-                async_get_clientsession(self.hass),
-                device_id=self._device_id,
-                session_id=self._session_id,
-            )
-            try:
-                self._preliminary_jwt = await client.async_login_step2(
-                    self._guid, user_input["otp_code"].strip(), self._phone
-                )
-                return await self.async_step_reauth_id()
-            except CellcomOTPError:
-                errors["base"] = "invalid_otp"
-            except Exception:
-                errors["base"] = "unknown"
-
-        return self.async_show_form(
-            step_id="reauth_otp",
-            data_schema=STEP_OTP_SCHEMA,
-            errors=errors,
-            description_placeholders={"phone": self._phone},
-        )
-
-    async def async_step_reauth_id(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.FlowResult:
-        """Verify ID number during reauth and update stored tokens."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            entry = self._get_reauth_entry()
-            client = CellcomEnergyClient(
-                async_get_clientsession(self.hass),
-                device_id=self._device_id,
-                session_id=self._session_id,
-            )
-            try:
-                tokens = await client.async_login_step3(
-                    self._preliminary_jwt,
-                    user_input[CONF_ID_NUMBER].strip(),
-                    self._phone,
-                )
-                await _store_tokens(self.hass, tokens)
-                self.hass.config_entries.async_update_entry(
-                    entry,
-                    data={**entry.data, "session_id": self._session_id},
-                )
-                await self.hass.config_entries.async_reload(entry.entry_id)
-                return self.async_abort(reason="reauth_successful")
-            except CellcomIDError:
-                errors["base"] = "invalid_id"
-            except Exception:
-                errors["base"] = "unknown"
-
-        return self.async_show_form(
-            step_id="reauth_id",
-            data_schema=STEP_ID_SCHEMA,
-            errors=errors,
-        )
+        return await self.async_step_browser_login()
 
     def _get_reauth_entry(self) -> config_entries.ConfigEntry:
-        """Return the config entry being re-authenticated."""
         return self.hass.config_entries.async_get_entry(self.context["entry_id"])
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _extract_energy_subscriber(init_data: dict) -> tuple[str, str]:
-    """Extract the BAN and subscriber number for the Energy product."""
+    """Extract BAN and subscriber number for the Energy product."""
     subscribers_by_product = init_data.get("subscribersByProduct", {})
     energy_list = subscribers_by_product.get("Energy", [])
 
@@ -341,13 +269,11 @@ def _extract_energy_subscriber(init_data: dict) -> tuple[str, str]:
         _LOGGER.warning("No Energy subscriber found in CustomerInit response")
         return "", ""
 
-    # Prefer active subscribers
     active = [s for s in energy_list if s.get("productStatus") == "A"]
     subscriber = (active or energy_list)[0]
-
     ban = subscriber.get("ban", "")
     subscriber_no = subscriber.get("productSubscriberNo", "")
-    _LOGGER.debug("Found Energy subscriber: BAN=%s, Subscriber=%s", ban, subscriber_no)
+    _LOGGER.debug("Found Energy subscriber: BAN=%s, sub=%s", ban, subscriber_no)
     return ban, subscriber_no
 
 

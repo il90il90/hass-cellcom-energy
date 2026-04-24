@@ -2,28 +2,28 @@
   "config": {
     "step": {
       "user": {
-        "title": "Cellcom Energy — Login",
-        "description": "Enter your Cellcom account phone number. You will receive an SMS with a one-time code.",
+        "title": "Cellcom Energy — Step 1 of 3",
+        "description": "Enter the mobile number registered to your Cellcom Energy account.",
         "data": {
           "phone": "Phone number"
         },
         "data_description": {
-          "phone": "The mobile number registered to your Cellcom account (e.g. 050-1234567)"
+          "phone": "Israeli mobile number (e.g. 050-1234567)"
         }
       },
-      "phone": {
-        "title": "Cellcom Energy — Login",
-        "description": "Enter your Cellcom account phone number. You will receive an SMS with a one-time code.",
+      "browser_login": {
+        "title": "Cellcom Energy — Step 2 of 3",
+        "description": "**How to send the verification SMS:**\n\n1. Open **https://cellcom.co.il/my-cellcom** in your browser.\n2. Open the browser console: press **F12** → click the **Console** tab.\n3. Paste the command shown below and press **Enter**.\n4. A prompt will appear with a GUID — copy it and paste it in the field below.\n\n```\n{snippet}\n```\n\n*(Phone: {phone})*",
         "data": {
-          "phone": "Phone number"
+          "guid": "GUID (from the prompt dialog)"
         },
         "data_description": {
-          "phone": "The mobile number registered to your Cellcom account (e.g. 050-1234567)"
+          "guid": "Paste the GUID that appeared in the browser prompt after running the command"
         }
       },
       "otp": {
-        "title": "Enter SMS Code",
-        "description": "A 6-digit code was sent to {phone}. Enter it below.",
+        "title": "Cellcom Energy — Step 3 of 3",
+        "description": "A 6-digit SMS code was sent to **{phone}**. Enter it below.",
         "data": {
           "otp_code": "Verification code"
         }
@@ -34,31 +34,40 @@
         "data": {
           "id_number": "ID number (תעודת זהות)"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Cellcom Energy",
+        "description": "Your session has expired. Follow the same steps to log in again for **{phone}**."
+      },
+      "reauth_otp": {
+        "title": "Enter New SMS Code",
+        "description": "A new 6-digit code was sent to {phone}.",
+        "data": {
+          "otp_code": "Verification code"
+        }
+      },
+      "reauth_id": {
+        "title": "Verify Your Identity",
+        "description": "Enter your Israeli ID number to complete re-authentication.",
+        "data": {
+          "id_number": "ID number (תעודת זהות)"
+        }
       }
     },
     "error": {
       "cannot_connect": "Unable to reach Cellcom servers. Check your internet connection or try again in a few minutes.",
-      "invalid_phone": "Invalid phone number. Enter a valid Israeli mobile number.",
-      "invalid_otp": "The code is incorrect or has expired. Request a new code and try again.",
+      "invalid_phone": "Invalid phone number. Enter a valid Israeli mobile number (10 digits, starting with 0).",
+      "invalid_guid": "The GUID looks incorrect. Make sure you copied the full value from the browser prompt.",
+      "invalid_otp": "The code is incorrect or has expired. Re-run the browser command to get a new GUID and SMS code.",
       "invalid_id": "The ID number does not match this account.",
+      "no_energy_account": "No Cellcom Energy account found for this number. Make sure you have an active electricity account.",
       "otp_expired": "The verification code has expired. Please restart the login.",
       "too_many_attempts": "Too many failed attempts. Wait a few minutes and try again.",
       "unknown": "Unexpected error. See the HA log for details."
     },
     "abort": {
-      "already_configured": "This Cellcom account is already configured.",
+      "already_configured": "This Cellcom Energy account is already configured.",
       "reauth_successful": "Re-authentication successful."
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Cellcom Energy Options",
-        "data": {
-          "scan_interval": "Update interval (minutes)",
-          "show_diagnostic": "Show diagnostic entities"
-        }
-      }
     }
   }
 }
