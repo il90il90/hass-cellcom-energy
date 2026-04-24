@@ -8,7 +8,7 @@
           "tokens_json": "Paste token JSON here"
         },
         "data_description": {
-          "tokens_json": "The JSON text from the dialog (starts with {\"accessToken\":...})"
+          "tokens_json": "Paste the text that appeared in the browser dialog, or a plain JWT token starting with eyJ"
         }
       }
     },

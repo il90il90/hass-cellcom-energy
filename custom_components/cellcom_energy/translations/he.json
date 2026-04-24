@@ -8,7 +8,7 @@
           "tokens_json": "הדבק את ה-JSON של ה-tokens כאן"
         },
         "data_description": {
-          "tokens_json": "הטקסט שהופיע בחלון (מתחיל ב-{\"accessToken\":...})"
+          "tokens_json": "הדבק את הטקסט שהופיע בחלון הדפדפן, או JWT ישיר שמתחיל ב-eyJ"
         }
       }
     },
