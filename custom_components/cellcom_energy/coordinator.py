@@ -70,11 +70,12 @@ class CellcomEnergyCoordinator(DataUpdateCoordinator[CellcomData]):
     # ── Internal helpers ───────────────────────────────────────────────────────
 
     def _make_client(self) -> CellcomEnergyClient:
-        """Create an API client using the persisted device/session IDs."""
+        """Create an API client using the persisted device/session/client IDs."""
         return CellcomEnergyClient(
             async_get_clientsession(self.hass),
             device_id=self._entry.data.get("device_id"),
             session_id=self._entry.data.get("session_id"),
+            client_id=self._entry.data.get("client_id") or None,
         )
 
     async def _async_load_tokens(self) -> Tokens | None:

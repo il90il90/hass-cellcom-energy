@@ -29,10 +29,13 @@ ENDPOINT_FULL_MAIN = "/api/Ibill/GetFullMainAuth"
 ENDPOINT_ALL_PRODUCTS = "/api/Ibill/GetAllProductsAuth"
 
 # ── Fixed client identifiers (web portal constants) ────────────────────────────
-# This CLIENT_ID is the fixed identifier for the Cellcom private web portal.
+# Fallback CLIENT_ID — the real value is extracted per-user from their JWT claim CLIENT_ID.
 CLIENT_ID = "984193a2-8d29-11ea-bc55-0242ac130004"
 OTP_ORIGIN = "main OTP"
 SCOPE = "PRIVATE_WEBSITE"
+
+# Cellcom Energy block identifier used in all Ibill POST requests.
+ENERGY_BLOCK_ID = 69635
 
 # ── Coordinator ────────────────────────────────────────────────────────────────
 DEFAULT_SCAN_INTERVAL_MINUTES = 30

@@ -15,12 +15,13 @@ from .const import (
     CLIENT_ID,
     ENDPOINT_ALL_INVOICES,
     ENDPOINT_ALL_PRODUCTS,
-    ENDPOINT_CUSTOMER_INIT,
     ENDPOINT_FULL_MAIN,
     ENDPOINT_INVOICE_DATA,
     ENDPOINT_LOGIN_STEP1,
     ENDPOINT_LOGIN_STEP2,
     ENDPOINT_LOGIN_STEP3,
+    ENDPOINT_ONBOARDING,
+    ENERGY_BLOCK_ID,
     MAX_RETRIES,
     OTP_ORIGIN,
     RETRY_BACKOFF_BASE,
@@ -95,9 +96,12 @@ class CellcomEnergyClient:
         device_id: str | None = None,
         session_id: str | None = None,
         recaptcha_token: str | None = None,
+        client_id: str | None = None,
     ) -> None:
         """Initialise the client with an aiohttp session and optional persistent IDs.
 
+        client_id: per-user CLIENT_ID extracted from their JWT claim.
+                   Falls back to the module-level CLIENT_ID constant if not provided.
         recaptcha_token: a real browser-obtained reCAPTCHA v3 token for LoginStep1.
         When provided it is sent in the x-cell-recaptcha-token header.
         """
@@ -105,6 +109,7 @@ class CellcomEnergyClient:
         self._device_id = device_id or _generate_device_id()
         self._session_id = session_id or _generate_session_id()
         self._recaptcha_token: str | None = recaptcha_token
+        self._client_id: str = client_id or CLIENT_ID
 
     @property
     def device_id(self) -> str:
@@ -121,7 +126,7 @@ class CellcomEnergyClient:
         return {
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
-            "ClientID": CLIENT_ID,
+            "ClientID": self._client_id,
             "Content-Type": "application/json",
             "DeviceId": self._device_id,
             "Origin": "https://cellcom.co.il",
@@ -381,79 +386,116 @@ class CellcomEnergyClient:
     # ── Data endpoints ─────────────────────────────────────────────────────────
 
     async def async_get_customer_init(self, access_token: str) -> dict[str, Any]:
-        """Fetch the subscriber product list (identifies Energy BAN and subscriber)."""
+        """Fetch the subscriber product list (identifies Energy BAN and subscriber).
+
+        Uses GET /api/SelfCare/GetSelfcareDataOnboarding which returns
+        Body.subscribersByProduct.Energy[].
+        """
         return await self._request(
-            "PUT", ENDPOINT_CUSTOMER_INIT, bearer=access_token
+            "GET", ENDPOINT_ONBOARDING, bearer=access_token
         )
 
-    async def async_get_invoice_data(
-        self, access_token: str, ban: str
-    ) -> dict[str, Any]:
-        """Fetch the current billing period summary for a BAN."""
+    async def async_get_invoice_data(self, access_token: str) -> dict[str, Any]:
+        """Fetch the invoice list per BAN.
+
+        Returns Body.invoices — an array of {banPsId, invoices[], billCycle, ...}.
+        Used to extract the invoiceId needed by the Ibill endpoints.
+        """
         return await self._request(
-            "PUT",
-            ENDPOINT_INVOICE_DATA,
-            json={"BanId": ban},
-            bearer=access_token,
+            "GET", ENDPOINT_INVOICE_DATA, bearer=access_token
         )
 
     async def async_get_all_invoices(
-        self, access_token: str, ban: str
+        self, access_token: str, invoice_id: str
     ) -> dict[str, Any]:
-        """Fetch the invoice list with amounts and kWh for a BAN."""
+        """Fetch detailed billing info for an invoice.
+
+        Returns Body.{dataInvoices, customerPerBan}.
+        """
         return await self._request(
-            "PUT",
+            "POST",
             ENDPOINT_ALL_INVOICES,
-            json={"BanId": ban},
+            json={"blockId": ENERGY_BLOCK_ID, "invoiceId": invoice_id, "ticketId": None},
             bearer=access_token,
         )
 
     async def async_get_full_main(
-        self, access_token: str, ban: str
+        self, access_token: str, invoice_id: str
     ) -> dict[str, Any]:
-        """Fetch the monthly consumption history for a BAN."""
+        """Fetch the monthly consumption history.
+
+        Returns Body.{history, main, generalTab, ...}.
+        """
         return await self._request(
-            "PUT",
+            "POST",
             ENDPOINT_FULL_MAIN,
-            json={"BanId": ban},
+            json={"blockId": ENERGY_BLOCK_ID, "invoiceId": invoice_id, "ticketId": None},
             bearer=access_token,
         )
 
     async def async_get_all_products(
-        self, access_token: str, ban: str, subscriber: str
+        self, access_token: str, invoice_id: str
     ) -> dict[str, Any]:
-        """Fetch meter number, contract, and tariff plan details."""
+        """Fetch meter and tariff plan details.
+
+        Returns Body.{allDetailsCliProduct}.
+        """
         return await self._request(
-            "PUT",
+            "POST",
             ENDPOINT_ALL_PRODUCTS,
-            json={"BanId": ban, "PsId": subscriber},
+            json={"blockId": ENERGY_BLOCK_ID, "invoiceId": invoice_id, "ticketId": None},
             bearer=access_token,
         )
 
     async def async_fetch_all(
         self, access_token: str, ban: str, subscriber: str
     ) -> CellcomData:
-        """Fetch all data endpoints in parallel and return a CellcomData instance."""
+        """Fetch all data endpoints and return a CellcomData instance.
+
+        Flow:
+          1. GET InvoiceData  → extract invoice_id for this BAN
+          2. In parallel: GetAllInvoicesAuth + GetFullMainAuth + GetAllProductsAuth
+        """
+        # Step 1: get the invoice list to find the current invoice_id
+        invoice_list_raw: dict[str, Any] = {}
+        invoice_id = ""
+        try:
+            invoice_list_raw = await self.async_get_invoice_data(access_token)
+            invoice_id = _extract_invoice_id(invoice_list_raw, ban)
+        except Exception as err:
+            _LOGGER.warning("Failed to fetch InvoiceData: %s", err)
+
+        if not invoice_id:
+            _LOGGER.warning(
+                "No invoice_id found for BAN %s — skipping Ibill endpoints", ban
+            )
+            return _parse_cellcom_data(
+                ban=ban,
+                subscriber=subscriber,
+                invoice_list_raw=invoice_list_raw,
+                invoices_raw={},
+                history_raw={},
+                products_raw={},
+            )
+
+        # Step 2: fetch remaining endpoints in parallel
         results = await asyncio.gather(
-            self.async_get_invoice_data(access_token, ban),
-            self.async_get_all_invoices(access_token, ban),
-            self.async_get_full_main(access_token, ban),
-            self.async_get_all_products(access_token, ban, subscriber),
+            self.async_get_all_invoices(access_token, invoice_id),
+            self.async_get_full_main(access_token, invoice_id),
+            self.async_get_all_products(access_token, invoice_id),
             return_exceptions=True,
         )
 
-        invoice_data_raw, invoices_raw, history_raw, products_raw = results
+        invoices_raw, history_raw, products_raw = results
 
-        for name, result in zip(
-            ["invoice_data", "all_invoices", "full_main", "all_products"], results
-        ):
+        for name, result in zip(["all_invoices", "full_main", "all_products"], results):
             if isinstance(result, Exception):
                 _LOGGER.warning("Cellcom API partial failure on %s: %s", name, result)
 
         return _parse_cellcom_data(
             ban=ban,
             subscriber=subscriber,
-            invoice_data_raw=invoice_data_raw if not isinstance(invoice_data_raw, Exception) else {},
+            invoice_list_raw=invoice_list_raw,
             invoices_raw=invoices_raw if not isinstance(invoices_raw, Exception) else {},
             history_raw=history_raw if not isinstance(history_raw, Exception) else {},
             products_raw=products_raw if not isinstance(products_raw, Exception) else {},
@@ -462,10 +504,31 @@ class CellcomEnergyClient:
 
 # ── Response parsers ───────────────────────────────────────────────────────────
 
+def _extract_invoice_id(invoice_list_raw: dict, ban: str) -> str:
+    """Return the most recent invoice ID for *ban* from an InvoiceData response.
+
+    InvoiceData Body.invoices is a list of {banPsId, invoices[], billCycle, ...}.
+    The inner invoices[] items have an 'id' field (UUID) needed for Ibill calls.
+    """
+    outer = invoice_list_raw.get("invoices", [])
+    # Prefer the entry whose banPsId matches the Energy BAN
+    for entry in outer:
+        if str(entry.get("banPsId", "")) == str(ban):
+            inner = entry.get("invoices", [])
+            if inner:
+                return str(inner[0].get("id", ""))
+    # Fallback: first entry with any invoice
+    for entry in outer:
+        inner = entry.get("invoices", [])
+        if inner:
+            return str(inner[0].get("id", ""))
+    return ""
+
+
 def _parse_cellcom_data(
     ban: str,
     subscriber: str,
-    invoice_data_raw: dict,
+    invoice_list_raw: dict,
     invoices_raw: dict,
     history_raw: dict,
     products_raw: dict,
@@ -475,10 +538,10 @@ def _parse_cellcom_data(
         ban=ban,
         subscriber_number=subscriber,
         current_invoice=_parse_current_invoice(ban, invoices_raw),
-        billing_period=_parse_billing_period(invoice_data_raw),
+        billing_period=_parse_billing_period(invoices_raw, invoice_list_raw),
         meter=_parse_meter_info(ban, subscriber, products_raw),
         tariff_plan=_parse_tariff_plan(products_raw),
-        customer=None,  # Populated from CustomerInit if needed
+        customer=None,
         history=_parse_history(history_raw),
     )
 
@@ -517,9 +580,15 @@ def _parse_current_invoice(ban: str, raw: dict) -> Invoice | None:
     )
 
 
-def _parse_billing_period(raw: dict) -> BillingPeriod | None:
-    """Parse the current billing period summary."""
-    per_ban = raw.get("customerPerBan", {})
+def _parse_billing_period(
+    invoices_raw: dict, invoice_list_raw: dict | None = None
+) -> BillingPeriod | None:
+    """Parse the current billing period summary.
+
+    Primary source: GetAllInvoicesAuth response (invoices_raw) → customerPerBan.
+    Fallback: InvoiceData response (invoice_list_raw) → billCycle + first invoice.
+    """
+    per_ban = invoices_raw.get("customerPerBan", {})
     if not per_ban:
         return None
 

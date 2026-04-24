@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from typing import Any
@@ -120,6 +121,7 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._session_id: str = _generate_session_id()
         self._access_token: str = ""
         self._refresh_token: str = ""
+        self._client_id: str = ""
 
     # ── Step 1: Instructions + token paste ────────────────────────────────────
 
@@ -135,7 +137,7 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if parsed is None:
                 errors["tokens_json"] = "invalid_tokens_json"
             else:
-                self._access_token, self._refresh_token = parsed
+                self._access_token, self._refresh_token, self._client_id = parsed
                 return await self._async_validate_and_create()
 
         return self.async_show_form(
@@ -152,6 +154,7 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             async_get_clientsession(self.hass),
             device_id=self._device_id,
             session_id=self._session_id,
+            client_id=self._client_id or None,
         )
         try:
             init_data = await client.async_get_customer_init(self._access_token)
@@ -199,6 +202,7 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "subscriber": subscriber,
                 "device_id": self._device_id,
                 "session_id": self._session_id,
+                "client_id": self._client_id,
             },
         )
 
@@ -215,20 +219,23 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _parse_tokens_json(raw: str) -> tuple[str, str] | None:
+def _parse_tokens_json(raw: str) -> tuple[str, str, str] | None:
     """Parse tokens from user input.
 
     Accepts:
       - {"accessToken": "eyJ...", "refreshToken": "eyJ..."}  — full JSON
       - Plain JWT string starting with "eyJ"                 — used as access token
       - unescape()-encoded JSON containing access_token key  — decoded automatically
-    Returns (access_token, refresh_token); refresh_token may be empty.
+
+    Returns (access_token, refresh_token, client_id).
+    client_id is extracted from the JWT payload claim CLIENT_ID.
+    refresh_token and client_id may be empty strings.
     """
     raw = raw.strip().strip('"')
 
-    # Plain JWT pasted directly (could be access or refresh token)
+    # Plain JWT pasted directly
     if raw.startswith("eyJ") and "." in raw:
-        return raw, ""
+        return raw, "", _extract_client_id_from_jwt(raw)
 
     # JSON object
     try:
@@ -236,23 +243,36 @@ def _parse_tokens_json(raw: str) -> tuple[str, str] | None:
         at = data.get("accessToken") or data.get("access_token") or ""
         rt = data.get("refreshToken") or data.get("refresh_token") or ""
         if at.startswith("eyJ"):
-            return at, rt
+            return at, rt, _extract_client_id_from_jwt(at)
     except (json.JSONDecodeError, AttributeError):
         pass
 
     # unescape()-encoded value (Cellcom stores auth_token this way)
     try:
-        import urllib.parse
         decoded = raw.encode("utf-8").decode("unicode_escape")
         data2 = json.loads(decoded)
         at2 = data2.get("access_token") or data2.get("accessToken") or ""
         rt2 = data2.get("refresh_token") or data2.get("refreshToken") or ""
         if at2.startswith("eyJ"):
-            return at2, rt2
+            return at2, rt2, _extract_client_id_from_jwt(at2)
     except Exception:
         pass
 
     return None
+
+
+def _extract_client_id_from_jwt(token: str) -> str:
+    """Decode the JWT payload and return the CLIENT_ID claim (no signature check)."""
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return ""
+        # Add padding so base64 decoding works
+        payload_b64 = parts[1] + "=="
+        payload = json.loads(base64.b64decode(payload_b64))
+        return payload.get("CLIENT_ID") or payload.get("client_id") or ""
+    except Exception:
+        return ""
 
 
 def _extract_energy_info(init_data: dict) -> tuple[str, str, str]:
