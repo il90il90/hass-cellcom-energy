@@ -62,27 +62,28 @@ _INTERCEPT_SNIPPET = (
 )
 
 # ── Snippet B: paste when ALREADY logged in ───────────────────────────────────
-# Checks direct keys first (accessToken, auth_token), then scans all storage
-# entries for any JWT-containing JSON object.
+# Reads the JWT directly from localStorage and copies it to the clipboard.
+# Falls back to a prompt() dialog if the Clipboard API is unavailable.
 _EXTRACT_SNIPPET = (
     "(function(){"
-    # Try well-known direct keys first
     "var at=localStorage.getItem('accessToken')||localStorage.getItem('auth_token')||'';"
-    "var rt=localStorage.getItem('refreshToken')||localStorage.getItem('refresh_token')||'';"
-    # If not found as direct string, scan all storage for JSON objects
-    "if(!at.includes('eyJ')){"
+    # Scan all storage if direct keys not found
+    "if(!at.startsWith('eyJ')){"
     "[localStorage,sessionStorage].forEach(function(s){"
     "for(var i=0;i<s.length;i++){"
     "var raw=s.getItem(s.key(i))||'';"
     "if(!raw.includes('eyJ'))continue;"
-    "try{var o=JSON.parse(raw);"
-    "if(o&&o.accessToken){at=o.accessToken;rt=o.refreshToken||rt;}"
-    "}catch(e){}"
+    "try{var o=JSON.parse(raw);if(o&&o.accessToken&&o.accessToken.startsWith('eyJ'))at=o.accessToken;}"
+    "catch(e){if(raw.startsWith('eyJ'))at=raw;}"
     "}"
     "});}"
-    "if(at&&at.includes('eyJ')){"
-    "prompt('Copy ALL and paste in Home Assistant:',JSON.stringify({accessToken:at,refreshToken:rt}));}"
-    "else alert('Tokens not found.\\nKeys: '+Object.keys(localStorage).join(', '));"
+    "if(!at.startsWith('eyJ')){alert('Token not found.');return;}"
+    # Copy to clipboard — try modern API first, then DevTools copy(), then prompt()
+    "if(navigator.clipboard&&navigator.clipboard.writeText){"
+    "navigator.clipboard.writeText(at).then(function(){"
+    "alert('[Cellcom Energy] Token copied!\\nPaste it in the Home Assistant field.');});"
+    "}else if(typeof copy==='function'){copy(at);alert('[Cellcom Energy] Token copied!\\nPaste it in the Home Assistant field.');}"
+    "else{prompt('Copy this token and paste in Home Assistant:',at);}"
     "})()"
 )
 
