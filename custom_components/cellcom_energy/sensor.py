@@ -237,8 +237,15 @@ class CellcomTariffPlanSensor(_CellcomSensorBase):
     def native_value(self) -> str | None:
         data = self._data
         if data and data.tariff_plan:
-            return data.tariff_plan.plan_description or data.tariff_plan.plan_code
-        return None
+            name = data.tariff_plan.plan_description or data.tariff_plan.plan_code
+            if name:
+                return name
+        # Fallback: plan stored in entry.data during config flow
+        return (
+            self._entry.data.get("plan_desc")
+            or self._entry.data.get("plan_code")
+            or None
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

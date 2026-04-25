@@ -172,7 +172,7 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors={"base": "invalid_tokens_json"},
             )
 
-        ban, subscriber, phone = _extract_energy_info(init_data)
+        ban, subscriber, phone, plan_code, plan_desc = _extract_energy_info(init_data)
         if not ban:
             return self.async_show_form(
                 step_id="user",
@@ -208,6 +208,8 @@ class CellcomEnergyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "device_id": self._device_id,
                 "session_id": self._session_id,
                 "client_id": self._client_id,
+                "plan_code": plan_code,
+                "plan_desc": plan_desc,
             },
         )
 
@@ -292,14 +294,14 @@ def _extract_jwt_expiry(token: str) -> int:
         return 0
 
 
-def _extract_energy_info(init_data: dict) -> tuple[str, str, str]:
-    """Return (ban, subscriber_no, phone) for the Energy product."""
+def _extract_energy_info(init_data: dict) -> tuple[str, str, str, str, str]:
+    """Return (ban, subscriber_no, phone, plan_code, plan_desc) for the Energy product."""
     subscribers_by_product = init_data.get("subscribersByProduct", {})
     energy_list = subscribers_by_product.get("Energy", [])
 
     if not energy_list:
         _LOGGER.warning("No Energy subscriber found in CustomerInit response")
-        return "", "", ""
+        return "", "", "", "", ""
 
     active = [s for s in energy_list if s.get("productStatus") == "A"]
     subscriber = (active or energy_list)[0]
@@ -307,8 +309,13 @@ def _extract_energy_info(init_data: dict) -> tuple[str, str, str]:
     ban = subscriber.get("ban", "")
     subscriber_no = subscriber.get("productSubscriberNo", "")
     phone = subscriber.get("contactNumber", "") or subscriber.get("msisdn", "")
-    _LOGGER.debug("Energy subscriber: BAN=%s sub=%s phone=%s", ban, subscriber_no, phone)
-    return ban, subscriber_no, phone
+    plan_code = subscriber.get("pricePlanCode", "")
+    plan_desc = subscriber.get("pricePlanDesc", "")
+    _LOGGER.debug(
+        "Energy subscriber: BAN=%s sub=%s phone=%s plan=%s (%s)",
+        ban, subscriber_no, phone, plan_desc, plan_code,
+    )
+    return ban, subscriber_no, phone, plan_code, plan_desc
 
 
 async def _store_tokens(hass: HomeAssistant, tokens: Tokens) -> None:

@@ -768,9 +768,17 @@ def _parse_tariff_plan(raw: dict) -> TariffPlan | None:
             if len(parts) == 3:
                 plan_start = f"{parts[2]}-{parts[1]}-{parts[0]}"
 
-    # Plan name and code from subscriber data (not available here, use placeholder)
-    plan_name = item.get("pricePlanDesc", "")
-    plan_code = item.get("pricePlanCode", "")
+    # Plan name: prefer explicit fields; fall back to extracting from plan text.
+    # GetAllProductsAuth does not carry pricePlanDesc/pricePlanCode directly —
+    # those fields live on the GetSelfcareDataOnboarding subscriber record.
+    # The plan description appears in the free-text: "תוכנית <name>,"
+    plan_name = item.get("pricePlanDesc") or item.get("plan_desc") or ""
+    plan_code = item.get("pricePlanCode") or item.get("plan_code") or ""
+    if not plan_name and plan_text:
+        # The text contains "תוכנית <name>," — exclude colons so we skip the
+        # generic "תוכנית עיקריים:" prefix and land on the actual plan name.
+        if name_match := re.search(r"תוכנית\s+([^:,]+),", plan_text):
+            plan_name = name_match.group(1).strip()
 
     return TariffPlan(
         plan_code=plan_code,
