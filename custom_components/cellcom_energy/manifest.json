@@ -11,5 +11,5 @@
   "issue_tracker": "https://github.com/il90il90/hass-cellcom-energy/issues",
   "quality_scale": "silver",
   "requirements": ["aiohttp>=3.9.0"],
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

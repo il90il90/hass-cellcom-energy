@@ -511,13 +511,17 @@ class CellcomEnergyClient:
             if isinstance(result, Exception):
                 _LOGGER.warning("Cellcom API partial failure on %s: %s", name, result)
 
+        def _safe_dict(value: Any) -> dict:
+            """Return value if it is a non-None dict, otherwise an empty dict."""
+            return value if isinstance(value, dict) else {}
+
         return _parse_cellcom_data(
             ban=ban,
             subscriber=subscriber,
-            invoice_list_raw=invoice_list_raw,
-            invoices_raw=invoices_raw if not isinstance(invoices_raw, Exception) else {},
-            history_raw=history_raw if not isinstance(history_raw, Exception) else {},
-            products_raw=products_raw if not isinstance(products_raw, Exception) else {},
+            invoice_list_raw=_safe_dict(invoice_list_raw),
+            invoices_raw=_safe_dict(invoices_raw),
+            history_raw=_safe_dict(history_raw),
+            products_raw=_safe_dict(products_raw),
         )
 
 
