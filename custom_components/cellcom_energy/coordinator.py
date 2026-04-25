@@ -135,6 +135,19 @@ class CellcomEnergyCoordinator(DataUpdateCoordinator[CellcomData]):
         if self._tokens is None:
             raise ConfigEntryAuthFailed("No tokens found, re-authentication required")
 
+        # Fail fast if the access token is already fully expired.
+        # This avoids a pointless API call that would return 401 anyway.
+        now = int(time.time())
+        if self._tokens.access_expires_at != 0 and self._tokens.access_expires_at < now:
+            _LOGGER.warning(
+                "Access token expired %ss ago — triggering re-authentication",
+                now - self._tokens.access_expires_at,
+            )
+            self._tokens = None
+            raise ConfigEntryAuthFailed(
+                "Access token has expired, please re-authenticate via the integration page"
+            )
+
         # Proactively refresh the access token if it's about to expire
         if self._is_access_token_expiring(self._tokens):
             _LOGGER.debug("Access token expiring soon, refreshing")

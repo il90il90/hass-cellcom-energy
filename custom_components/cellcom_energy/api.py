@@ -456,18 +456,25 @@ class CellcomEnergyClient:
           1. GET InvoiceData  → extract invoice_id for this BAN
           2. In parallel: GetAllInvoicesAuth + GetFullMainAuth + GetAllProductsAuth
         """
-        # Step 1: get the invoice list to find the current invoice_id
+        # Step 1: get the invoice list to find the current invoice_id.
+        # Auth and connection errors are intentionally NOT caught here — they must
+        # propagate to the coordinator so it can raise ConfigEntryAuthFailed /
+        # UpdateFailed and surface the problem to the user in the HA UI.
         invoice_list_raw: dict[str, Any] = {}
         invoice_id = ""
         try:
             invoice_list_raw = await self.async_get_invoice_data(access_token)
             invoice_id = _extract_invoice_id(invoice_list_raw, ban)
+        except (CellcomAuthError, CellcomConnectionError):
+            raise  # Let coordinator decide how to handle auth/connection failures
         except Exception as err:
-            _LOGGER.warning("Failed to fetch InvoiceData: %s", err)
+            _LOGGER.warning("Failed to fetch InvoiceData (non-auth): %s", err)
 
         if not invoice_id:
             _LOGGER.warning(
-                "No invoice_id found for BAN %s — skipping Ibill endpoints", ban
+                "No invoice_id found for BAN %s — Ibill endpoints skipped "
+                "(account may have no invoices yet)",
+                ban,
             )
             return _parse_cellcom_data(
                 ban=ban,
