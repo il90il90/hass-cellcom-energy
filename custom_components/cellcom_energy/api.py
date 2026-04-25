@@ -648,7 +648,7 @@ def _parse_history(raw: dict) -> list[MonthlyHistory]:
             MonthlyHistory(
                 month=month_iso,
                 cycle_date=cycle_date,
-                bill_periods=item.get("billPeriods", ""),
+                bill_periods=item.get("billPeriods") or "",
                 cycle_month_name=cycle_month,
                 period_year=year,
                 kwh=kwh,
