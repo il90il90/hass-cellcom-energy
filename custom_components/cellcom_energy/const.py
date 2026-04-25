@@ -38,7 +38,7 @@ SCOPE = "PRIVATE_WEBSITE"
 ENERGY_BLOCK_ID = 69635
 
 # ── Coordinator ────────────────────────────────────────────────────────────────
-DEFAULT_SCAN_INTERVAL_MINUTES = 30
+DEFAULT_SCAN_INTERVAL_MINUTES = 60
 
 # Proactively refresh access token when fewer than this many seconds remain.
 TOKEN_REFRESH_THRESHOLD_SECONDS = 300  # 5 minutes
