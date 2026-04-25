@@ -373,8 +373,8 @@ class CellcomEnergyClient:
         except CellcomAPIError as err:
             raise CellcomIDError(f"ID number verification failed: {err}") from err
 
-        extra = body.get("extra", body)
-        token_det = extra.get("tokenDet", {})
+        extra = body.get("extra") or body
+        token_det = extra.get("tokenDet") or {}
 
         access = extra.get("accessToken") or token_det.get("access_token")
         refresh = extra.get("refreshToken") or token_det.get("refresh_token")
@@ -579,7 +579,9 @@ def _parse_current_invoice(ban: str, raw: dict) -> Invoice | None:
         return None
 
     inv = energy_invoices[0]
-    price_data = inv.get("invoivePrice", {})
+    # Use `or {}` instead of `get(key, {})` because `get` returns None when the
+    # key exists with a null value — `or {}` converts that None to an empty dict.
+    price_data = inv.get("invoivePrice") or {}
     cycle = str(inv.get("cycle_date", ""))
     period_str = inv.get("fullCycleDate", "")
     parts = [p.strip() for p in period_str.split("-")] if "-" in period_str else []
@@ -598,7 +600,7 @@ def _parse_current_invoice(ban: str, raw: dict) -> Invoice | None:
             is_credit=bool(price_data.get("isCreditExists")),
         ),
         is_energy=True,
-        services=inv.get("listServices", ["ENERGY"]),
+        services=inv.get("listServices") or ["ENERGY"],
         bill_url=f"https://cellcom.co.il/selfcare/InvoicePageNew?id={inv.get('guidId', '')}",
     )
 
@@ -611,20 +613,20 @@ def _parse_billing_period(
     Primary source: GetAllInvoicesAuth response (invoices_raw) → customerPerBan.
     Fallback: InvoiceData response (invoice_list_raw) → billCycle + first invoice.
     """
-    per_ban = invoices_raw.get("customerPerBan", {})
+    per_ban = invoices_raw.get("customerPerBan") or {}
     if not per_ban:
         return None
 
-    def safe_date(val: str) -> str:
-        """Convert dd/mm/yyyy to ISO yyyy-mm-dd."""
+    def safe_date(val: str | None) -> str:
+        """Convert dd/mm/yyyy to ISO yyyy-mm-dd, returning '' for None/invalid."""
         try:
-            parts = val.strip().split("/")
+            parts = (val or "").strip().split("/")
             if len(parts) == 3:
                 dd, mm, yyyy = parts
                 return f"{yyyy}-{mm}-{dd}"
         except Exception:
             pass
-        return val
+        return val or ""
 
     return BillingPeriod(
         total_sum=float(per_ban.get("totalSum", 0) or 0),
@@ -648,8 +650,8 @@ def _parse_history(raw: dict) -> list[MonthlyHistory]:
     result: list[MonthlyHistory] = []
 
     for item in items:
-        kwh_details = item.get("kwhDetails", {})
-        amount_data = item.get("amountData", {})
+        kwh_details = item.get("kwhDetails") or {}
+        amount_data = item.get("amountData") or {}
         cycle_date = item.get("cycleDate", 0)
 
         try:
