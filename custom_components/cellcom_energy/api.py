@@ -238,6 +238,15 @@ class CellcomEnergyClient:
         except aiohttp.ClientResponseError as err:
             raise CellcomConnectionError(f"HTTP error {err.status}") from err
 
+        # The API can return a bare JSON null (or a non-dict) — normalise to {}
+        # so every subsequent .get() call is safe.
+        if not isinstance(data, dict):
+            _LOGGER.warning(
+                "Unexpected response type %s for %s — treating as empty",
+                type(data).__name__, endpoint,
+            )
+            return {}
+
         header = data.get("Header", {})
         return_code = header.get("ReturnCode", -1)
         if return_code != 0:
