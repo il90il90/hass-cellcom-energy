@@ -245,7 +245,10 @@ class CellcomEnergyClient:
             _LOGGER.error("Cellcom API error [%s]: %s", return_code, msg)
             raise CellcomAPIError(return_code, msg)
 
-        return data.get("Body", data)
+        body = data.get("Body", data)
+        # Guard against "Body": null responses — always return a dict so callers
+        # can safely call .get() without AttributeError.
+        return body if isinstance(body, dict) else {}
 
     # ── Authentication ─────────────────────────────────────────────────────────
 
