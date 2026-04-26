@@ -21,6 +21,7 @@ from .const import (
     ENDPOINT_LOGIN_STEP2,
     ENDPOINT_LOGIN_STEP3,
     ENDPOINT_ONBOARDING,
+    ENDPOINT_REFRESH_TOKEN,
     ENERGY_BLOCK_ID,
     MAX_RETRIES,
     OTP_ORIGIN,
@@ -394,6 +395,48 @@ class CellcomEnergyClient:
         )
         _LOGGER.debug("LoginStep3 succeeded, tokens received (expires in %ss)", expires_in)
         return tokens
+
+    async def async_refresh_token(self, tokens: Tokens) -> Tokens:
+        """Exchange a refresh token for a new access/refresh token pair.
+
+        Calls POST /api/otp/RefreshToken with the current refresh token.
+        Raises CellcomAuthError if the refresh token is rejected.
+        """
+        try:
+            body = await self._request(
+                "POST",
+                ENDPOINT_REFRESH_TOKEN,
+                json={"refreshToken": tokens.refresh_token},
+                bearer=tokens.access_token,
+            )
+        except CellcomAPIError as err:
+            raise CellcomAuthError(f"Token refresh rejected by server: {err}") from err
+
+        extra = body.get("extra") or body
+        token_det = extra.get("tokenDet") or {}
+
+        new_access = extra.get("accessToken") or token_det.get("access_token")
+        new_refresh = (
+            extra.get("refreshToken")
+            or token_det.get("refresh_token")
+            or tokens.refresh_token  # keep old refresh token if server omits it
+        )
+        expires_in = token_det.get("expires_in", 71552)
+
+        if not new_access:
+            raise CellcomAuthError("RefreshToken response did not return a new access token")
+
+        now = int(time.time())
+        new_tokens = Tokens(
+            access_token=new_access,
+            refresh_token=new_refresh,
+            access_expires_at=now + expires_in,
+            refresh_expires_at=now + 10800,
+            device_id=tokens.device_id,
+            session_id=tokens.session_id,
+        )
+        _LOGGER.debug("Token refreshed successfully, new token expires in %ss", expires_in)
+        return new_tokens
 
     # ── Data endpoints ─────────────────────────────────────────────────────────
 

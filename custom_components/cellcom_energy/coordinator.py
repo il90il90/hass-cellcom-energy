@@ -135,22 +135,22 @@ class CellcomEnergyCoordinator(DataUpdateCoordinator[CellcomData]):
         if self._tokens is None:
             raise ConfigEntryAuthFailed("No tokens found, re-authentication required")
 
-        # Fail fast if the access token is already fully expired.
-        # This avoids a pointless API call that would return 401 anyway.
+        # If the access token is expired or about to expire, try to refresh it.
+        # If the refresh token is also expired, _async_refresh_access_token
+        # raises ConfigEntryAuthFailed which triggers the HA reauth flow.
         now = int(time.time())
-        if self._tokens.access_expires_at != 0 and self._tokens.access_expires_at < now:
+        access_expired = (
+            self._tokens.access_expires_at != 0
+            and self._tokens.access_expires_at < now
+        )
+        if access_expired:
             _LOGGER.warning(
-                "Access token expired %ss ago — triggering re-authentication",
+                "Access token expired %ss ago — attempting refresh",
                 now - self._tokens.access_expires_at,
             )
-            self._tokens = None
-            raise ConfigEntryAuthFailed(
-                "Access token has expired, please re-authenticate via the integration page"
-            )
-
-        # Proactively refresh the access token if it's about to expire
-        if self._is_access_token_expiring(self._tokens):
-            _LOGGER.debug("Access token expiring soon, refreshing")
+            await self._async_refresh_access_token()
+        elif self._is_access_token_expiring(self._tokens):
+            _LOGGER.debug("Access token expiring soon — proactive refresh")
             await self._async_refresh_access_token()
 
         # Fetch all data
@@ -188,16 +188,18 @@ class CellcomEnergyCoordinator(DataUpdateCoordinator[CellcomData]):
             self._tokens = None
             raise ConfigEntryAuthFailed("Refresh token expired, please re-authenticate")
 
-        # TODO: implement /api/otp/RefreshToken endpoint once discovered.
-        # For now, the refresh token is stored but the endpoint is unknown.
-        # We log a warning and continue with the existing access token until it
-        # fully expires, at which point ConfigEntryAuthFailed will be raised.
-        remaining = self._tokens.access_expires_at - int(time.time())
-        _LOGGER.warning(
-            "Token refresh endpoint not yet implemented. "
-            "Access token expires in %ss. Will prompt reauth when expired.",
-            remaining,
-        )
+        client = self._make_client()
+        try:
+            new_tokens = await client.async_refresh_token(self._tokens)
+            self._tokens = new_tokens
+            await self._async_save_tokens(new_tokens)
+            _LOGGER.info("Access token refreshed successfully via /api/otp/RefreshToken")
+        except CellcomAuthError as err:
+            _LOGGER.warning("Token refresh failed (%s) — triggering re-authentication", err)
+            self._tokens = None
+            raise ConfigEntryAuthFailed(
+                "Token refresh failed, please re-authenticate"
+            ) from err
 
     @property
     def api_calls_today(self) -> int:
